@@ -1,0 +1,6 @@
+{
+  "name": "Green CSJMU Initiative",
+  "description": "Green CSJMU Initiative - Full-Stack MERN Architecture for Hackathon Project",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
