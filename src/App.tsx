@@ -11,14 +11,19 @@ import {
   UserCheck, 
   RefreshCw, 
   Code2, 
-  Activity, 
   TreePine, 
   Recycle, 
   Zap, 
   Award,
   Layers,
   Terminal,
-  ArrowRight
+  Plus,
+  Users,
+  MapPin,
+  Trophy,
+  Filter,
+  Sparkles,
+  Check
 } from 'lucide-react';
 
 interface HealthResponse {
@@ -41,16 +46,60 @@ interface UserProfile {
   greenPoints: number;
 }
 
+interface Initiative {
+  _id: string;
+  title: string;
+  description: string;
+  category: 'TreePlantation' | 'EWasteCollection' | 'EnergyAudit' | 'WasteManagement' | 'AwarenessCampaign';
+  location: string;
+  organizerName?: string;
+  organizer?: { name: string; department?: string };
+  targetParticipants: number;
+  currentParticipants: string[];
+  status: string;
+  createdAt: string;
+}
+
+interface LeaderboardEntry {
+  id?: string;
+  _id?: string;
+  name: string;
+  department: string;
+  greenPoints: number;
+  role: string;
+}
+
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'overview' | 'tester' | 'routes' | 'models'>('overview');
+  const [activeTab, setActiveTab] = useState<'initiatives' | 'leaderboard' | 'tester' | 'overview'>('initiatives');
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [loadingHealth, setLoadingHealth] = useState<boolean>(true);
-  const [healthError, setHealthError] = useState<string | null>(null);
 
-  // Auth tester state
+  // Initiatives state
+  const [initiatives, setInitiatives] = useState<Initiative[]>([]);
+  const [loadingInitiatives, setLoadingInitiatives] = useState<boolean>(false);
+  const [selectedCategory, setSelectedCategory] = useState<string>('All');
+  const [joiningId, setJoiningId] = useState<string | null>(null);
+  const [joinMsg, setJoinMsg] = useState<{ id: string; msg: string; success: boolean } | null>(null);
+
+  // New initiative form state
+  const [showCreateModal, setShowCreateModal] = useState<boolean>(false);
+  const [newInitiative, setNewInitiative] = useState({
+    title: '',
+    description: '',
+    category: 'TreePlantation',
+    location: 'Central Lawn, CSJMU Campus',
+    targetParticipants: 50,
+  });
+  const [createLoading, setCreateLoading] = useState<boolean>(false);
+
+  // Leaderboard state
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
+  const [loadingLeaderboard, setLoadingLeaderboard] = useState<boolean>(false);
+
+  // Auth state
   const [authMode, setAuthMode] = useState<'login' | 'register'>('register');
   const [formData, setFormData] = useState({
-    name: 'CSJMU Student',
+    name: 'Aarav Student',
     email: 'student@csjmu.ac.in',
     password: 'password123',
     department: 'Computer Science & Engineering',
@@ -64,21 +113,53 @@ export default function App() {
 
   const fetchHealth = async () => {
     setLoadingHealth(true);
-    setHealthError(null);
     try {
       const res = await fetch('/api/health');
-      if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-      const data: HealthResponse = await res.json();
-      setHealth(data);
-    } catch (err: any) {
-      setHealthError(err.message || 'Failed to connect to backend server');
+      if (res.ok) {
+        const data: HealthResponse = await res.json();
+        setHealth(data);
+      }
+    } catch (err) {
+      console.error('Health check failed', err);
     } finally {
       setLoadingHealth(false);
     }
   };
 
+  const fetchInitiatives = async () => {
+    setLoadingInitiatives(true);
+    try {
+      const res = await fetch('/api/initiatives');
+      if (res.ok) {
+        const data = await res.json();
+        setInitiatives(data.initiatives || []);
+      }
+    } catch (err) {
+      console.error('Failed to load initiatives', err);
+    } finally {
+      setLoadingInitiatives(false);
+    }
+  };
+
+  const fetchLeaderboard = async () => {
+    setLoadingLeaderboard(true);
+    try {
+      const res = await fetch('/api/initiatives/leaderboard');
+      if (res.ok) {
+        const data = await res.json();
+        setLeaderboard(data.leaderboard || []);
+      }
+    } catch (err) {
+      console.error('Failed to load leaderboard', err);
+    } finally {
+      setLoadingLeaderboard(false);
+    }
+  };
+
   useEffect(() => {
     fetchHealth();
+    fetchInitiatives();
+    fetchLeaderboard();
   }, []);
 
   const handleAuthSubmit = async (e: React.FormEvent) => {
@@ -135,10 +216,106 @@ export default function App() {
     }
   };
 
+  const handleJoinInitiative = async (id: string) => {
+    if (!currentToken) {
+      setActiveTab('tester');
+      setAuthError('Please register or login first to participate and earn Green Points!');
+      return;
+    }
+
+    setJoiningId(id);
+    setJoinMsg(null);
+
+    try {
+      const res = await fetch(`/api/initiatives/${id}/join`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${currentToken}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.message || 'Failed to join initiative');
+      }
+
+      setJoinMsg({ id, msg: data.message || 'Joined successfully! +50 Green Points', success: true });
+      
+      if (data.updatedGreenPoints !== undefined && currentUser) {
+        setCurrentUser({ ...currentUser, greenPoints: data.updatedGreenPoints });
+      }
+
+      fetchInitiatives();
+      fetchLeaderboard();
+    } catch (err: any) {
+      setJoinMsg({ id, msg: err.message, success: false });
+    } finally {
+      setJoiningId(null);
+    }
+  };
+
+  const handleCreateInitiative = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentToken) {
+      setShowCreateModal(false);
+      setActiveTab('tester');
+      setAuthError('Please register or login first to create a campus initiative!');
+      return;
+    }
+
+    setCreateLoading(true);
+    try {
+      const res = await fetch('/api/initiatives', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${currentToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(newInitiative)
+      });
+      const data = await res.json();
+
+      if (!res.ok) throw new Error(data.message || 'Failed to create initiative');
+
+      setShowCreateModal(false);
+      setNewInitiative({
+        title: '',
+        description: '',
+        category: 'TreePlantation',
+        location: 'Central Lawn, CSJMU Campus',
+        targetParticipants: 50,
+      });
+
+      if (currentUser) {
+        setCurrentUser({ ...currentUser, greenPoints: currentUser.greenPoints + 100 });
+      }
+
+      fetchInitiatives();
+      fetchLeaderboard();
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setCreateLoading(false);
+    }
+  };
+
+  const categoryIcons: Record<string, any> = {
+    TreePlantation: TreePine,
+    EWasteCollection: Recycle,
+    EnergyAudit: Zap,
+    WasteManagement: Leaf,
+    AwarenessCampaign: Sparkles,
+  };
+
+  const filteredInitiatives = selectedCategory === 'All' 
+    ? initiatives 
+    : initiatives.filter(i => i.category === selectedCategory);
+
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950">
       {/* Header */}
-      <header className="border-b border-slate-800 bg-slate-950/80 backdrop-blur sticky top-0 z-50">
+      <header className="border-b border-slate-800 bg-slate-950/90 backdrop-blur sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center shadow-lg shadow-emerald-950/40">
@@ -148,193 +325,271 @@ export default function App() {
               <div className="flex items-center gap-2">
                 <h1 className="text-lg font-bold tracking-tight text-white">Green CSJMU Initiative</h1>
                 <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                  Backend Ready
+                  Full-Stack MERN
                 </span>
               </div>
-              <p className="text-xs text-slate-400">Chhatrapati Shahu Ji Maharaj University • Sustainability Stack</p>
+              <p className="text-xs text-slate-400">Chhatrapati Shahu Ji Maharaj University • Sustainability Platform</p>
             </div>
           </div>
 
           <div className="flex items-center gap-3">
+            {currentUser ? (
+              <div className="flex items-center gap-3 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-xl">
+                <Award className="w-4 h-4 text-emerald-400" />
+                <div className="text-xs text-left">
+                  <p className="font-semibold text-emerald-300">{currentUser.name}</p>
+                  <p className="text-slate-400 text-[10px]">{currentUser.greenPoints} Green Points</p>
+                </div>
+              </div>
+            ) : (
+              <button
+                onClick={() => setActiveTab('tester')}
+                className="text-xs font-medium bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-3 py-1.5 rounded-lg transition font-semibold"
+              >
+                Register / Login
+              </button>
+            )}
+
             <button
               onClick={fetchHealth}
               disabled={loadingHealth}
-              className="flex items-center gap-2 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1.5 rounded-lg border border-slate-700 transition"
+              className="flex items-center gap-1.5 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1.5 rounded-lg border border-slate-700 transition"
               title="Refresh Health Check"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${loadingHealth ? 'animate-spin text-emerald-400' : ''}`} />
-              <span>{loadingHealth ? 'Checking...' : 'Check API'}</span>
+              <span className="hidden sm:inline">Health</span>
             </button>
-
-            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-xs">
-              <span className={`w-2 h-2 rounded-full ${health?.database.connected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
-              <span className="text-slate-300">
-                DB: <strong className="text-slate-100">{health?.database.status || 'Active'}</strong>
-              </span>
-            </div>
           </div>
         </div>
       </header>
 
       {/* Main Container */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col gap-8">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col gap-6">
         
-        {/* Status Banner */}
-        <section className="bg-gradient-to-r from-slate-950 via-slate-900 to-emerald-950/40 rounded-2xl p-6 border border-emerald-500/20 shadow-xl relative overflow-hidden">
-          <div className="absolute top-0 right-0 translate-x-8 -translate-y-8 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
-            <div className="space-y-2">
-              <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-md bg-emerald-500/10 text-emerald-400 text-xs font-medium border border-emerald-500/20">
-                <CheckCircle2 className="w-3.5 h-3.5" /> Backend Foundation Operational
-              </div>
-              <h2 className="text-2xl font-bold text-white tracking-tight">
-                Backend Architecture Active & Ready for Integration
-              </h2>
-              <p className="text-sm text-slate-300 max-w-2xl leading-relaxed">
-                The Express.js backend, MongoDB/Mongoose connection layer, JWT Authentication middleware, 
-                asynchronous error handling, and environment configuration have been initialized.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 min-w-[280px]">
-              <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
-                <p className="text-xs text-slate-400">Server Port</p>
-                <p className="text-base font-bold text-emerald-400">3000</p>
-              </div>
-              <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
-                <p className="text-xs text-slate-400">Auth System</p>
-                <p className="text-base font-bold text-teal-400">JWT + bcrypt</p>
-              </div>
-              <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-800 col-span-2 sm:col-span-1">
-                <p className="text-xs text-slate-400">ORM / DB</p>
-                <p className="text-base font-bold text-indigo-400">Mongoose</p>
-              </div>
-            </div>
-          </div>
-        </section>
-
         {/* Navigation Tabs */}
-        <nav className="flex items-center gap-2 border-b border-slate-800 pb-3 overflow-x-auto">
-          {[
-            { id: 'overview', label: 'Architecture Overview', icon: Layers },
-            { id: 'tester', label: 'Live JWT Auth Tester', icon: KeyRound },
-            { id: 'routes', label: 'API Routes & Endpoints', icon: Server },
-            { id: 'models', label: 'Data Models & Schemas', icon: Database },
-          ].map((tab) => {
-            const Icon = tab.icon;
-            const isActive = activeTab === tab.id;
-            return (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+          <nav className="flex items-center gap-2 overflow-x-auto">
+            {[
+              { id: 'initiatives', label: 'Campus Drives', icon: Leaf },
+              { id: 'leaderboard', label: 'Green Leaderboard', icon: Trophy },
+              { id: 'tester', label: 'Auth & JWT Tester', icon: KeyRound },
+              { id: 'overview', label: 'System Architecture', icon: Layers },
+            ].map((tab) => {
+              const Icon = tab.icon;
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id as any)}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition whitespace-nowrap ${
+                    isActive
+                      ? 'bg-emerald-500 text-slate-950 font-semibold shadow-md shadow-emerald-500/20'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                  }`}
+                >
+                  <Icon className="w-4 h-4" />
+                  {tab.label}
+                </button>
+              );
+            })}
+          </nav>
+
+          {activeTab === 'initiatives' && (
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-4 py-2 rounded-xl text-xs font-bold transition shadow-lg shadow-emerald-950/50"
+            >
+              <Plus className="w-4 h-4" /> Launch Campus Drive (+100 PTS)
+            </button>
+          )}
+        </div>
+
+        {/* Tab 1: Campus Initiatives */}
+        {activeTab === 'initiatives' && (
+          <div className="space-y-6">
+            {/* Category Filter Pills */}
+            <div className="flex items-center gap-2 overflow-x-auto pb-2">
+              <span className="text-xs text-slate-400 flex items-center gap-1 mr-1">
+                <Filter className="w-3.5 h-3.5" /> Category:
+              </span>
+              {['All', 'TreePlantation', 'EWasteCollection', 'EnergyAudit', 'AwarenessCampaign'].map((cat) => (
+                <button
+                  key={cat}
+                  onClick={() => setSelectedCategory(cat)}
+                  className={`px-3 py-1 rounded-lg text-xs font-medium transition whitespace-nowrap ${
+                    selectedCategory === cat
+                      ? 'bg-slate-800 text-emerald-400 border border-emerald-500/40'
+                      : 'bg-slate-950 text-slate-400 hover:text-slate-200 border border-slate-800'
+                  }`}
+                >
+                  {cat === 'All' ? 'All Initiatives' : cat}
+                </button>
+              ))}
+            </div>
+
+            {loadingInitiatives ? (
+              <div className="flex items-center justify-center py-16 text-slate-400 gap-3">
+                <RefreshCw className="w-5 h-5 animate-spin text-emerald-400" />
+                <span>Fetching live CSJMU green drives...</span>
+              </div>
+            ) : filteredInitiatives.length === 0 ? (
+              <div className="bg-slate-950 p-12 rounded-2xl border border-slate-800 text-center">
+                <Leaf className="w-10 h-10 text-slate-600 mx-auto mb-3" />
+                <h3 className="text-base font-semibold text-slate-300">No initiatives in this category yet</h3>
+                <p className="text-xs text-slate-500 mt-1">Be the first to create an eco drive on CSJMU campus!</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
+                {filteredInitiatives.map((item) => {
+                  const Icon = categoryIcons[item.category] || Leaf;
+                  const isJoined = currentUser && item.currentParticipants?.includes(currentUser.id);
+
+                  return (
+                    <div
+                      key={item._id}
+                      className="bg-slate-950 p-6 rounded-2xl border border-slate-800 hover:border-emerald-500/30 transition flex flex-col justify-between space-y-4"
+                    >
+                      <div className="space-y-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                              <Icon className="w-5 h-5" />
+                            </div>
+                            <div>
+                              <span className="text-[10px] font-bold tracking-wider uppercase text-emerald-400">
+                                {item.category}
+                              </span>
+                              <h3 className="text-base font-semibold text-white leading-snug">
+                                {item.title}
+                              </h3>
+                            </div>
+                          </div>
+                          <span className="text-xs px-2.5 py-1 rounded-full bg-slate-900 border border-slate-800 text-slate-300 font-mono">
+                            +50 PTS
+                          </span>
+                        </div>
+
+                        <p className="text-xs text-slate-300 leading-relaxed">
+                          {item.description}
+                        </p>
+
+                        <div className="flex flex-wrap items-center gap-4 text-xs text-slate-400 pt-1">
+                          <span className="flex items-center gap-1">
+                            <MapPin className="w-3.5 h-3.5 text-teal-400" />
+                            {item.location}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Users className="w-3.5 h-3.5 text-indigo-400" />
+                            {item.currentParticipants?.length || 0} / {item.targetParticipants} Registered
+                          </span>
+                        </div>
+                      </div>
+
+                      {joinMsg && joinMsg.id === item._id && (
+                        <div className={`p-2.5 rounded-lg text-xs ${joinMsg.success ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-300 border border-rose-500/20'}`}>
+                          {joinMsg.msg}
+                        </div>
+                      )}
+
+                      <div className="pt-3 border-t border-slate-900 flex items-center justify-between">
+                        <span className="text-[11px] text-slate-500">
+                          Organized by: <strong className="text-slate-300">{item.organizerName || item.organizer?.name || 'CSJMU Volunteer'}</strong>
+                        </span>
+
+                        <button
+                          onClick={() => handleJoinInitiative(item._id)}
+                          disabled={joiningId === item._id || isJoined}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition ${
+                            isJoined
+                              ? 'bg-slate-900 text-emerald-400 border border-emerald-500/30 cursor-default'
+                              : 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-md shadow-emerald-950/40'
+                          }`}
+                        >
+                          {joiningId === item._id ? (
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          ) : isJoined ? (
+                            <>
+                              <Check className="w-3.5 h-3.5" /> Registered
+                            </>
+                          ) : (
+                            <>
+                              <Plus className="w-3.5 h-3.5" /> Join & Earn 50 PTS
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Tab 2: Green Leaderboard */}
+        {activeTab === 'leaderboard' && (
+          <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                  <Trophy className="w-5 h-5 text-amber-400" />
+                  CSJMU Campus Green Leaderboard
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">Top eco-conscious students, faculty, and departmental champions.</p>
+              </div>
               <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition whitespace-nowrap ${
-                  isActive
-                    ? 'bg-emerald-500 text-slate-950 font-semibold shadow-md shadow-emerald-500/20'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
-                }`}
+                onClick={fetchLeaderboard}
+                disabled={loadingLeaderboard}
+                className="text-xs bg-slate-900 hover:bg-slate-800 text-slate-300 px-3 py-1.5 rounded-lg border border-slate-800 flex items-center gap-1.5"
               >
-                <Icon className="w-4 h-4" />
-                {tab.label}
+                <RefreshCw className={`w-3.5 h-3.5 ${loadingLeaderboard ? 'animate-spin' : ''}`} /> Refresh
               </button>
-            );
-          })}
-        </nav>
-
-        {/* Tab 1: Architecture Overview */}
-        {activeTab === 'overview' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 flex flex-col justify-between">
-              <div>
-                <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center mb-4 border border-blue-500/20">
-                  <Server className="w-5 h-5" />
-                </div>
-                <h3 className="text-base font-semibold text-white mb-1">Express Server Entry</h3>
-                <p className="text-xs text-slate-400 leading-relaxed mb-4">
-                  Configured in <code className="text-emerald-400 bg-slate-900 px-1 py-0.5 rounded">server.ts</code> with Vite development middleware, CORS policy, body parsers, and global error handlers.
-                </p>
-              </div>
-              <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
-                <span>Port: 3000</span>
-                <span className="text-emerald-400 font-mono">/api/*</span>
-              </div>
             </div>
 
-            <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 flex flex-col justify-between">
-              <div>
-                <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center mb-4 border border-emerald-500/20">
-                  <Database className="w-5 h-5" />
-                </div>
-                <h3 className="text-base font-semibold text-white mb-1">MongoDB Connection</h3>
-                <p className="text-xs text-slate-400 leading-relaxed mb-4">
-                  Handled in <code className="text-emerald-400 bg-slate-900 px-1 py-0.5 rounded">src/config/db.ts</code> with connection string sanitizer, event listeners, and safe fallback mechanisms.
-                </p>
-              </div>
-              <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
-                <span>Database</span>
-                <span className="text-emerald-400 font-mono">green_csjmu</span>
-              </div>
-            </div>
+            <div className="space-y-3">
+              {leaderboard.map((entry, idx) => (
+                <div
+                  key={entry.id || entry._id || idx}
+                  className={`p-4 rounded-xl border flex items-center justify-between transition ${
+                    idx === 0
+                      ? 'bg-gradient-to-r from-amber-950/30 via-slate-900 to-slate-950 border-amber-500/30'
+                      : idx === 1
+                      ? 'bg-gradient-to-r from-slate-900 to-slate-950 border-slate-700'
+                      : 'bg-slate-900/60 border-slate-800'
+                  }`}
+                >
+                  <div className="flex items-center gap-4">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${
+                      idx === 0 ? 'bg-amber-400 text-slate-950' : idx === 1 ? 'bg-slate-300 text-slate-950' : idx === 2 ? 'bg-amber-700 text-white' : 'bg-slate-800 text-slate-400'
+                    }`}>
+                      #{idx + 1}
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-white">{entry.name}</p>
+                      <p className="text-xs text-slate-400">{entry.department} • <span className="capitalize">{entry.role}</span></p>
+                    </div>
+                  </div>
 
-            <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 flex flex-col justify-between">
-              <div>
-                <div className="w-10 h-10 rounded-xl bg-purple-500/10 text-purple-400 flex items-center justify-center mb-4 border border-purple-500/20">
-                  <ShieldCheck className="w-5 h-5" />
+                  <div className="flex items-center gap-2">
+                    <Award className="w-4 h-4 text-emerald-400" />
+                    <span className="text-sm font-bold text-emerald-400 font-mono">
+                      {entry.greenPoints} PTS
+                    </span>
+                  </div>
                 </div>
-                <h3 className="text-base font-semibold text-white mb-1">JWT Security Layer</h3>
-                <p className="text-xs text-slate-400 leading-relaxed mb-4">
-                  Authorization middleware in <code className="text-emerald-400 bg-slate-900 px-1 py-0.5 rounded">src/middleware/auth.ts</code> protecting routes, enforcing Bearer tokens, and checking roles.
-                </p>
-              </div>
-              <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
-                <span>Security</span>
-                <span className="text-purple-400 font-mono">30-day JWT</span>
-              </div>
-            </div>
-
-            {/* Campus Sustainability Modules preview */}
-            <div className="md:col-span-2 lg:col-span-3 bg-slate-950 p-6 rounded-2xl border border-slate-800">
-              <h3 className="text-base font-semibold text-white mb-2 flex items-center gap-2">
-                <Leaf className="w-4 h-4 text-emerald-400" />
-                Planned Campus Sustainability Initiatives
-              </h3>
-              <p className="text-xs text-slate-400 mb-6">
-                Data models created for tracking campus initiatives, student involvement, green points reward leaderboard, and e-waste collection.
-              </p>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-800/80 hover:border-emerald-500/40 transition">
-                  <TreePine className="w-6 h-6 text-emerald-400 mb-2" />
-                  <h4 className="text-sm font-medium text-slate-200">Tree Plantation</h4>
-                  <p className="text-xs text-slate-400 mt-1">Campus drive logging & participant tracking</p>
-                </div>
-                <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-800/80 hover:border-teal-500/40 transition">
-                  <Recycle className="w-6 h-6 text-teal-400 mb-2" />
-                  <h4 className="text-sm font-medium text-slate-200">E-Waste Drive</h4>
-                  <p className="text-xs text-slate-400 mt-1">Recycling collection points & rewards</p>
-                </div>
-                <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-800/80 hover:border-amber-500/40 transition">
-                  <Zap className="w-6 h-6 text-amber-400 mb-2" />
-                  <h4 className="text-sm font-medium text-slate-200">Energy Auditing</h4>
-                  <p className="text-xs text-slate-400 mt-1">Departmental energy saving campaigns</p>
-                </div>
-                <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-800/80 hover:border-indigo-500/40 transition">
-                  <Award className="w-6 h-6 text-indigo-400 mb-2" />
-                  <h4 className="text-sm font-medium text-slate-200">Green Points</h4>
-                  <p className="text-xs text-slate-400 mt-1">Gamified sustainability reward leaderboard</p>
-                </div>
-              </div>
+              ))}
             </div>
           </div>
         )}
 
-        {/* Tab 2: Live JWT Auth Tester */}
+        {/* Tab 3: Auth & JWT Tester */}
         {activeTab === 'tester' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
             <div className="lg:col-span-5 bg-slate-950 p-6 rounded-2xl border border-slate-800">
               <div className="flex items-center justify-between mb-6">
                 <h3 className="text-base font-semibold text-white flex items-center gap-2">
                   <KeyRound className="w-4 h-4 text-emerald-400" />
-                  Auth API Tester
+                  JWT Authentication API Tester
                 </h3>
                 <div className="flex bg-slate-900 p-1 rounded-lg border border-slate-800 text-xs">
                   <button
@@ -471,7 +726,7 @@ export default function App() {
                 {currentUser && (
                   <div className="mb-4 p-4 rounded-xl bg-slate-900 border border-slate-800">
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs text-slate-400">Authenticated Profile</span>
+                      <span className="text-xs text-slate-400">Authenticated Active Session</span>
                       <span className="text-xs text-emerald-400 font-semibold">{currentUser.greenPoints} Green Points</span>
                     </div>
                     <p className="text-sm font-semibold text-white">{currentUser.name}</p>
@@ -479,7 +734,7 @@ export default function App() {
                   </div>
                 )}
 
-                <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 font-mono text-xs overflow-x-auto min-h-[200px] max-h-[350px]">
+                <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 font-mono text-xs overflow-x-auto min-h-[220px] max-h-[350px]">
                   {authResult ? (
                     <pre className="text-emerald-300 leading-relaxed">
                       {JSON.stringify(authResult, null, 2)}
@@ -487,7 +742,7 @@ export default function App() {
                   ) : (
                     <div className="h-full flex flex-col items-center justify-center text-slate-500 py-12 text-center">
                       <Code2 className="w-8 h-8 mb-2 opacity-50" />
-                      <p>Submit the form to execute live request to Express endpoints</p>
+                      <p>Submit registration or login to execute request to backend</p>
                     </div>
                   )}
                 </div>
@@ -495,7 +750,7 @@ export default function App() {
 
               {currentToken && (
                 <div className="mt-4 pt-4 border-t border-slate-800">
-                  <p className="text-xs text-slate-400 mb-1">Active JWT Bearer Token:</p>
+                  <p className="text-xs text-slate-400 mb-1">Bearer Token:</p>
                   <p className="text-xs font-mono text-slate-300 truncate bg-slate-900 p-2 rounded border border-slate-800">
                     {currentToken}
                   </p>
@@ -505,74 +760,141 @@ export default function App() {
           </div>
         )}
 
-        {/* Tab 3: Routes & Endpoints */}
-        {activeTab === 'routes' && (
-          <div className="space-y-4">
-            <h3 className="text-base font-semibold text-white">Registered API Endpoints</h3>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex items-start gap-3">
-                <span className="px-2 py-1 bg-blue-500/10 text-blue-400 border border-blue-500/20 text-xs font-mono font-bold rounded">GET</span>
-                <div>
-                  <p className="font-mono text-sm font-semibold text-slate-200">/api/health</p>
-                  <p className="text-xs text-slate-400 mt-0.5">Returns API status, database state, environment info, and server timestamp.</p>
+        {/* Tab 4: System Architecture Overview */}
+        {activeTab === 'overview' && (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 flex flex-col justify-between">
+              <div>
+                <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center mb-4 border border-blue-500/20">
+                  <Server className="w-5 h-5" />
                 </div>
+                <h3 className="text-base font-semibold text-white mb-1">Express Server Entry</h3>
+                <p className="text-xs text-slate-400 leading-relaxed mb-4">
+                  Configured in <code className="text-emerald-400 bg-slate-900 px-1 py-0.5 rounded">server.ts</code> with Vite development middleware, CORS policy, body parsers, and global error handlers.
+                </p>
               </div>
-
-              <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex items-start gap-3">
-                <span className="px-2 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-mono font-bold rounded">POST</span>
-                <div>
-                  <p className="font-mono text-sm font-semibold text-slate-200">/api/auth/register</p>
-                  <p className="text-xs text-slate-400 mt-0.5">Registers new student/faculty with hashed password and generates JWT token.</p>
-                </div>
+              <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
+                <span>Port: 3000</span>
+                <span className="text-emerald-400 font-mono">/api/*</span>
               </div>
+            </div>
 
-              <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex items-start gap-3">
-                <span className="px-2 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-mono font-bold rounded">POST</span>
-                <div>
-                  <p className="font-mono text-sm font-semibold text-slate-200">/api/auth/login</p>
-                  <p className="text-xs text-slate-400 mt-0.5">Authenticates credentials, compares bcrypt password hash, and yields JWT.</p>
+            <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 flex flex-col justify-between">
+              <div>
+                <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center mb-4 border border-emerald-500/20">
+                  <Database className="w-5 h-5" />
                 </div>
+                <h3 className="text-base font-semibold text-white mb-1">MongoDB & Fallback Layer</h3>
+                <p className="text-xs text-slate-400 leading-relaxed mb-4">
+                  Handled in <code className="text-emerald-400 bg-slate-900 px-1 py-0.5 rounded">src/config/db.ts</code> with non-blocking buffer policy and in-memory store for smooth offline fallback.
+                </p>
               </div>
+              <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
+                <span>Database</span>
+                <span className="text-emerald-400 font-mono">green_csjmu</span>
+              </div>
+            </div>
 
-              <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex items-start gap-3">
-                <span className="px-2 py-1 bg-amber-500/10 text-amber-400 border border-amber-500/20 text-xs font-mono font-bold rounded">GET</span>
-                <div>
-                  <p className="font-mono text-sm font-semibold text-slate-200">/api/auth/me</p>
-                  <p className="text-xs text-slate-400 mt-0.5">Protected route requiring valid Bearer JWT. Returns current user profile.</p>
+            <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 flex flex-col justify-between">
+              <div>
+                <div className="w-10 h-10 rounded-xl bg-purple-500/10 text-purple-400 flex items-center justify-center mb-4 border border-purple-500/20">
+                  <ShieldCheck className="w-5 h-5" />
                 </div>
+                <h3 className="text-base font-semibold text-white mb-1">JWT Security Layer</h3>
+                <p className="text-xs text-slate-400 leading-relaxed mb-4">
+                  Authorization middleware in <code className="text-emerald-400 bg-slate-900 px-1 py-0.5 rounded">src/middleware/auth.ts</code> protecting routes, enforcing Bearer tokens, and checking roles.
+                </p>
+              </div>
+              <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
+                <span>Security</span>
+                <span className="text-purple-400 font-mono">30-day JWT</span>
               </div>
             </div>
           </div>
         )}
 
-        {/* Tab 4: Data Models */}
-        {activeTab === 'models' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800">
-              <h4 className="text-sm font-semibold text-emerald-400 font-mono mb-2">User Model Schema (src/models/userModel.ts)</h4>
-              <ul className="text-xs text-slate-300 space-y-2 font-mono bg-slate-900 p-4 rounded-xl border border-slate-800">
-                <li>• <span className="text-blue-400">name</span>: String (required)</li>
-                <li>• <span className="text-blue-400">email</span>: String (unique, required)</li>
-                <li>• <span className="text-blue-400">password</span>: String (hashed via bcrypt)</li>
-                <li>• <span className="text-blue-400">role</span>: 'student' | 'faculty' | 'admin'</li>
-                <li>• <span className="text-blue-400">department</span>: String</li>
-                <li>• <span className="text-blue-400">greenPoints</span>: Number (default: 0)</li>
-                <li>• <span className="text-slate-500">timestamps</span>: createdAt, updatedAt</li>
-              </ul>
-            </div>
+        {/* Modal: Create Eco-Drive */}
+        {showCreateModal && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 max-w-md w-full space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <Plus className="w-4 h-4 text-emerald-400" /> Launch Campus Initiative
+                </h3>
+                <button
+                  onClick={() => setShowCreateModal(false)}
+                  className="text-slate-400 hover:text-white text-sm"
+                >
+                  ✕
+                </button>
+              </div>
 
-            <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800">
-              <h4 className="text-sm font-semibold text-teal-400 font-mono mb-2">Initiative Model Schema (src/models/initiativeModel.ts)</h4>
-              <ul className="text-xs text-slate-300 space-y-2 font-mono bg-slate-900 p-4 rounded-xl border border-slate-800">
-                <li>• <span className="text-blue-400">title</span>: String (required)</li>
-                <li>• <span className="text-blue-400">description</span>: String</li>
-                <li>• <span className="text-blue-400">category</span>: TreePlantation | EWaste | EnergyAudit ...</li>
-                <li>• <span className="text-blue-400">organizer</span>: ObjectId (ref: 'User')</li>
-                <li>• <span className="text-blue-400">currentParticipants</span>: [ObjectId]</li>
-                <li>• <span className="text-blue-400">status</span>: 'Upcoming' | 'Active' | 'Completed'</li>
-                <li>• <span className="text-slate-500">timestamps</span>: createdAt, updatedAt</li>
-              </ul>
+              <form onSubmit={handleCreateInitiative} className="space-y-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">Initiative Title</label>
+                  <input
+                    type="text"
+                    value={newInitiative.title}
+                    onChange={(e) => setNewInitiative({ ...newInitiative, title: e.target.value })}
+                    placeholder="e.g. Campus Herbal Garden Plantation Drive"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">Category</label>
+                  <select
+                    value={newInitiative.category}
+                    onChange={(e) => setNewInitiative({ ...newInitiative, category: e.target.value as any })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500"
+                  >
+                    <option value="TreePlantation">Tree Plantation</option>
+                    <option value="EWasteCollection">E-Waste Collection</option>
+                    <option value="EnergyAudit">Energy Audit</option>
+                    <option value="AwarenessCampaign">Awareness Campaign</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">Campus Location</label>
+                  <input
+                    type="text"
+                    value={newInitiative.location}
+                    onChange={(e) => setNewInitiative({ ...newInitiative, location: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">Description</label>
+                  <textarea
+                    value={newInitiative.description}
+                    onChange={(e) => setNewInitiative({ ...newInitiative, description: e.target.value })}
+                    placeholder="Describe the goals and impact of this initiative..."
+                    rows={3}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500"
+                    required
+                  />
+                </div>
+
+                <div className="pt-2 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateModal(false)}
+                    className="px-4 py-2 rounded-lg text-xs font-medium bg-slate-800 text-slate-300 hover:bg-slate-700"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={createLoading}
+                    className="px-4 py-2 rounded-lg text-xs font-bold bg-emerald-500 hover:bg-emerald-400 text-slate-950 flex items-center gap-1.5"
+                  >
+                    {createLoading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : 'Publish Initiative (+100 PTS)'}
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         )}
@@ -582,7 +904,7 @@ export default function App() {
       {/* Footer */}
       <footer className="border-t border-slate-800 bg-slate-950 py-4 mt-auto">
         <div className="max-w-7xl mx-auto px-4 text-center text-xs text-slate-400">
-          Green CSJMU Initiative Hackathon Project • Full-Stack Express + MongoDB + JWT + React Stack
+          Green CSJMU Initiative • MERN Stack (Express, MongoDB, JWT Auth, Mongoose)
         </div>
       </footer>
     </div>
