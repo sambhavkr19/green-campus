@@ -10,6 +10,42 @@ import { AuthRequest } from '../middleware/auth.js';
 // In-memory store fallback when MongoDB server is offline
 export const fallbackUsers: Map<string, any> = new Map();
 
+// Seed default demo accounts
+const seedPasswordHash = bcrypt.hashSync('password123', 10);
+
+fallbackUsers.set('student@csjmu.ac.in', {
+  _id: 'usr_student_demo',
+  name: 'Aarav Student',
+  email: 'student@csjmu.ac.in',
+  password: seedPasswordHash,
+  role: 'student',
+  department: 'Computer Science & Engineering',
+  greenPoints: 250,
+  createdAt: new Date(),
+});
+
+fallbackUsers.set('faculty@csjmu.ac.in', {
+  _id: 'usr_faculty_demo',
+  name: 'Dr. Sunita Sharma',
+  email: 'faculty@csjmu.ac.in',
+  password: seedPasswordHash,
+  role: 'faculty',
+  department: 'Environmental Sciences',
+  greenPoints: 450,
+  createdAt: new Date(),
+});
+
+fallbackUsers.set('admin@csjmu.ac.in', {
+  _id: 'usr_admin_demo',
+  name: 'Campus Admin',
+  email: 'admin@csjmu.ac.in',
+  password: seedPasswordHash,
+  role: 'admin',
+  department: 'Administration',
+  greenPoints: 1000,
+  createdAt: new Date(),
+});
+
 /**
  * Register a new user
  * POST /api/auth/register

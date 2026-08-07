@@ -345,6 +345,33 @@ export default function App() {
   };
 
   useEffect(() => {
+    // Restore session from localStorage if available
+    const savedToken = localStorage.getItem('green_csjmu_token');
+    if (savedToken) {
+      setCurrentToken(savedToken);
+      fetch('/api/auth/me', {
+        headers: { Authorization: `Bearer ${savedToken}` }
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.status === 'success' && data.user) {
+            setCurrentUser(data.user);
+          } else {
+            localStorage.removeItem('green_csjmu_token');
+            localStorage.removeItem('green_csjmu_user');
+            setCurrentToken(null);
+          }
+        })
+        .catch(() => {
+          const cached = localStorage.getItem('green_csjmu_user');
+          if (cached) {
+            try {
+              setCurrentUser(JSON.parse(cached));
+            } catch (e) {}
+          }
+        });
+    }
+
     fetchHealth();
     fetchInitiatives();
     fetchRecyclingData();
@@ -549,10 +576,11 @@ export default function App() {
     setAuthError(null);
     setAuthResult(null);
 
+    const normalizedEmail = formData.email.trim().toLowerCase();
     const endpoint = authMode === 'register' ? '/api/auth/register' : '/api/auth/login';
     const payload = authMode === 'register' 
-      ? formData 
-      : { email: formData.email, password: formData.password };
+      ? { ...formData, email: normalizedEmail } 
+      : { email: normalizedEmail, password: formData.password };
 
     try {
       const res = await fetch(endpoint, {
@@ -570,12 +598,52 @@ export default function App() {
       if (data.token) {
         setCurrentToken(data.token);
         setCurrentUser(data.user);
+        localStorage.setItem('green_csjmu_token', data.token);
+        localStorage.setItem('green_csjmu_user', JSON.stringify(data.user));
       }
     } catch (err: any) {
       setAuthError(err.message || 'Auth execution failed');
     } finally {
       setAuthLoading(false);
     }
+  };
+
+  const handleQuickLogin = async (email: string, pass: string) => {
+    setAuthMode('login');
+    setFormData((prev) => ({ ...prev, email, password: pass }));
+    setAuthLoading(true);
+    setAuthError(null);
+
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim().toLowerCase(), password: pass })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Quick login failed');
+
+      setAuthResult(data);
+      if (data.token) {
+        setCurrentToken(data.token);
+        setCurrentUser(data.user);
+        localStorage.setItem('green_csjmu_token', data.token);
+        localStorage.setItem('green_csjmu_user', JSON.stringify(data.user));
+      }
+    } catch (err: any) {
+      setAuthError(err.message || 'Quick login failed');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleLogout = () => {
+    setCurrentToken(null);
+    setCurrentUser(null);
+    setAuthResult(null);
+    setAuthError(null);
+    localStorage.removeItem('green_csjmu_token');
+    localStorage.removeItem('green_csjmu_user');
   };
 
   const handleFetchMe = async () => {
@@ -885,12 +953,21 @@ export default function App() {
 
           <div className="flex items-center gap-3">
             {currentUser ? (
-              <div className="flex items-center gap-3 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-xl">
-                <Award className="w-4 h-4 text-emerald-400" />
-                <div className="text-xs text-left">
-                  <p className="font-semibold text-emerald-300">{currentUser.name}</p>
-                  <p className="text-slate-400 text-[10px]">{currentUser.greenPoints} Green Points</p>
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2.5 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-xl">
+                  <Award className="w-4 h-4 text-emerald-400" />
+                  <div className="text-xs text-left">
+                    <p className="font-semibold text-emerald-300">{currentUser.name}</p>
+                    <p className="text-slate-400 text-[10px]">{currentUser.greenPoints} Green Points</p>
+                  </div>
                 </div>
+                <button
+                  onClick={handleLogout}
+                  className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 px-2.5 py-1.5 rounded-lg border border-slate-700 transition"
+                  title="Logout"
+                >
+                  Logout
+                </button>
               </div>
             ) : (
               <button
@@ -1781,6 +1858,28 @@ export default function App() {
                     }`}
                   >
                     Login
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-3 bg-slate-900 border border-slate-800 rounded-xl space-y-2">
+                <p className="text-[11px] font-semibold text-slate-400">⚡ Quick 1-Click Demo Credentials:</p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleQuickLogin('student@csjmu.ac.in', 'password123')}
+                    disabled={authLoading}
+                    className="text-xs bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 font-medium transition"
+                  >
+                    <UserCheck className="w-3.5 h-3.5 text-emerald-400" /> Demo Student (Aarav)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleQuickLogin('faculty@csjmu.ac.in', 'password123')}
+                    disabled={authLoading}
+                    className="text-xs bg-teal-500/10 hover:bg-teal-500/20 text-teal-300 border border-teal-500/30 px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 font-medium transition"
+                  >
+                    <UserCheck className="w-3.5 h-3.5 text-teal-400" /> Demo Faculty (Dr. Sunita)
                   </button>
                 </div>
               </div>
