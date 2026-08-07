@@ -1,7 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Leaf, 
-  CheckCircle2, 
   Server, 
   Database, 
   ShieldCheck, 
@@ -23,7 +22,29 @@ import {
   Trophy,
   Filter,
   Sparkles,
-  Check
+  Check,
+  Scale,
+  CloudSun,
+  PackageCheck,
+  Brain,
+  Building2,
+  TrendingDown,
+  Lightbulb,
+  FileSpreadsheet,
+  CheckCircle,
+  Mic,
+  MicOff,
+  Camera,
+  Volume2,
+  AlertTriangle,
+  ThumbsUp,
+  MessageSquare,
+  Radio,
+  Trash2,
+  Play,
+  Square,
+  Upload,
+  Image as ImageIcon
 } from 'lucide-react';
 
 interface HealthResponse {
@@ -69,8 +90,66 @@ interface LeaderboardEntry {
   role: string;
 }
 
+interface RecyclingDeposit {
+  _id: string;
+  userName: string;
+  itemType: 'EWaste' | 'Plastic' | 'Paper' | 'Metal' | 'Glass';
+  weightKg: number;
+  location: string;
+  status: string;
+  pointsEarned: number;
+  co2SavedKg: number;
+  createdAt: string;
+}
+
+interface RecyclingAnalytics {
+  totalDeposits: number;
+  totalKgRecycled: number;
+  totalCo2SavedKg: number;
+  totalPointsDistributed: number;
+  categoryBreakdown: Record<string, number>;
+}
+
+interface AuditRecord {
+  _id: string;
+  department: string;
+  monthlyElectricityKwh: number;
+  dailyPlasticBottles: number;
+  paperReamsPerMonth: number;
+  acHoursPerDay: number;
+  calculatedEcoScore: number;
+  estimatedMonthlyCo2Kg: number;
+  aiRecommendations: string[];
+  userName: string;
+  createdAt: string;
+}
+
+interface DepartmentRanking {
+  department: string;
+  avgEcoScore: number;
+  totalMonthlyCo2Kg: number;
+  auditsCount: number;
+}
+
+interface VoiceComplaint {
+  _id: string;
+  title: string;
+  location: string;
+  description: string;
+  photoUrl?: string;
+  audioData?: string;
+  audioDurationSec?: number;
+  aiAnalysis?: string;
+  upvotes: number;
+  upvotedBy: string[];
+  status: 'Reported' | 'In Progress' | 'Resolved';
+  studentName: string;
+  department: string;
+  createdAt: string;
+}
+
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'initiatives' | 'leaderboard' | 'tester' | 'overview'>('initiatives');
+  const [activeTab, setActiveTab] = useState<'initiatives' | 'recycling' | 'audit' | 'complaints' | 'leaderboard' | 'tester' | 'overview'>('initiatives');
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [loadingHealth, setLoadingHealth] = useState<boolean>(true);
 
@@ -91,6 +170,52 @@ export default function App() {
     targetParticipants: 50,
   });
   const [createLoading, setCreateLoading] = useState<boolean>(false);
+
+  // Recycling state
+  const [deposits, setDeposits] = useState<RecyclingDeposit[]>([]);
+  const [recyclingAnalytics, setRecyclingAnalytics] = useState<RecyclingAnalytics | null>(null);
+  const [loadingRecycling, setLoadingRecycling] = useState<boolean>(false);
+  const [depositForm, setDepositForm] = useState({
+    itemType: 'EWaste',
+    weightKg: '2.5',
+    location: 'UIET Computer Lab 2, CSJMU',
+  });
+  const [depositLoading, setDepositLoading] = useState<boolean>(false);
+  const [depositResultMsg, setDepositResultMsg] = useState<{ msg: string; success: boolean } | null>(null);
+
+  // AI Eco-Audit state
+  const [audits, setAudits] = useState<AuditRecord[]>([]);
+  const [deptRankings, setDeptRankings] = useState<DepartmentRanking[]>([]);
+  const [loadingAudit, setLoadingAudit] = useState<boolean>(false);
+  const [auditForm, setAuditForm] = useState({
+    department: 'Computer Science & Engineering',
+    monthlyElectricityKwh: '3200',
+    dailyPlasticBottles: '50',
+    paperReamsPerMonth: '25',
+    acHoursPerDay: '7',
+  });
+  const [auditSubmitting, setAuditSubmitting] = useState<boolean>(false);
+  const [latestAuditResult, setLatestAuditResult] = useState<AuditRecord | null>(null);
+
+  // Voice & Photo Complaints State
+  const [complaints, setComplaints] = useState<VoiceComplaint[]>([]);
+  const [loadingComplaints, setLoadingComplaints] = useState<boolean>(false);
+  const [complaintForm, setComplaintForm] = useState({
+    title: '5 students throwing plastic garbage in CSJMU Garden',
+    location: 'UIET Central Lawn Benches',
+    description: 'Students dropped plastic bottles & food wrappers near garden lawn instead of green bin. Please clean and deploy additional recycling bin here!',
+    photoUrl: 'https://images.unsplash.com/photo-1530587191325-3db32d826c18?w=600&auto=format&fit=crop&q=80',
+  });
+  const [complaintAudioData, setComplaintAudioData] = useState<string>('');
+  const [audioDurationSec, setAudioDurationSec] = useState<number>(0);
+  const [isRecording, setIsRecording] = useState<boolean>(false);
+  const [recordingTime, setRecordingTime] = useState<number>(0);
+  const [complaintSubmitting, setComplaintSubmitting] = useState<boolean>(false);
+  const [upvotingId, setUpvotingId] = useState<string | null>(null);
+
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<any>(null);
 
   // Leaderboard state
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
@@ -141,6 +266,69 @@ export default function App() {
     }
   };
 
+  const fetchRecyclingData = async () => {
+    setLoadingRecycling(true);
+    try {
+      const [depRes, anaRes] = await Promise.all([
+        fetch('/api/recycling'),
+        fetch('/api/recycling/analytics')
+      ]);
+
+      if (depRes.ok) {
+        const depData = await depRes.json();
+        setDeposits(depData.deposits || []);
+      }
+
+      if (anaRes.ok) {
+        const anaData = await anaRes.json();
+        setRecyclingAnalytics(anaData.analytics || null);
+      }
+    } catch (err) {
+      console.error('Failed to load recycling data', err);
+    } finally {
+      setLoadingRecycling(false);
+    }
+  };
+
+  const fetchAuditData = async () => {
+    setLoadingAudit(true);
+    try {
+      const [audRes, rankRes] = await Promise.all([
+        fetch('/api/audit'),
+        fetch('/api/audit/rankings')
+      ]);
+
+      if (audRes.ok) {
+        const audData = await audRes.json();
+        setAudits(audData.audits || []);
+      }
+
+      if (rankRes.ok) {
+        const rankData = await rankRes.json();
+        setDeptRankings(rankData.rankings || []);
+      }
+    } catch (err) {
+      console.error('Failed to load eco audit data', err);
+    } finally {
+      setLoadingAudit(false);
+    }
+  };
+
+  const fetchComplaints = async () => {
+    setLoadingComplaints(true);
+    try {
+      const res = await fetch('/api/complaints');
+      if (res.ok) {
+        const data = await res.json();
+        setComplaints(data.complaints || []);
+      }
+    } catch (err) {
+      console.error('Failed to load voice complaints', err);
+    } finally {
+      setLoadingComplaints(false);
+    }
+  };
+
   const fetchLeaderboard = async () => {
     setLoadingLeaderboard(true);
     try {
@@ -159,8 +347,201 @@ export default function App() {
   useEffect(() => {
     fetchHealth();
     fetchInitiatives();
+    fetchRecyclingData();
+    fetchAuditData();
+    fetchComplaints();
     fetchLeaderboard();
   }, []);
+
+  // Buffer to WAV converter for synthesized demo voice notes
+  const bufferToWav = (buffer: AudioBuffer) => {
+    const numOfChan = buffer.numberOfChannels;
+    const length = buffer.length * numOfChan * 2 + 44;
+    const out = new DataView(new ArrayBuffer(length));
+    const channels: Float32Array[] = [];
+    const sampleRate = buffer.sampleRate;
+    let offset = 0;
+    let pos = 0;
+
+    function writeString(str: string) {
+      for (let i = 0; i < str.length; i++) {
+        out.setUint8(pos++, str.charCodeAt(i));
+      }
+    }
+
+    function setUint16(data: number) {
+      out.setUint16(pos, data, true);
+      pos += 2;
+    }
+
+    function setUint32(data: number) {
+      out.setUint32(pos, data, true);
+      pos += 4;
+    }
+
+    writeString('RIFF');
+    setUint32(length - 8);
+    writeString('WAVE');
+    writeString('fmt ');
+    setUint32(16);
+    setUint16(1);
+    setUint16(numOfChan);
+    setUint32(sampleRate);
+    setUint32(sampleRate * 2 * numOfChan);
+    setUint16(numOfChan * 2);
+    setUint16(16);
+    writeString('data');
+    setUint32(length - pos - 4);
+
+    for (let i = 0; i < buffer.numberOfChannels; i++) {
+      channels.push(buffer.getChannelData(i));
+    }
+
+    while (offset < buffer.length) {
+      for (let i = 0; i < numOfChan; i++) {
+        let sample = Math.max(-1, Math.min(1, channels[i][offset]));
+        sample = (0.5 + sample < 0 ? sample * 32768 : sample * 32767) | 0;
+        out.setInt16(pos, sample, true);
+        pos += 2;
+      }
+      offset++;
+    }
+
+    return new Blob([out], { type: 'audio/wav' });
+  };
+
+  const generateSampleVoiceNote = () => {
+    try {
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const sampleRate = audioCtx.sampleRate;
+      const duration = 5;
+      const buffer = audioCtx.createBuffer(1, sampleRate * duration, sampleRate);
+      const data = buffer.getChannelData(0);
+
+      for (let i = 0; i < sampleRate * duration; i++) {
+        const t = i / sampleRate;
+        const voiceFreq = 220 + Math.sin(t * 14) * 50 + Math.sin(t * 4) * 30;
+        const modulation = Math.sin(t * 10) > 0.1 ? 1 : 0.1;
+        data[i] = Math.sin(2 * Math.PI * voiceFreq * t) * 0.3 * modulation;
+      }
+
+      const wavBlob = bufferToWav(buffer);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setComplaintAudioData(reader.result as string);
+        setAudioDurationSec(5);
+      };
+      reader.readAsDataURL(wavBlob);
+    } catch (err) {
+      console.error('Failed to generate audio note', err);
+    }
+  };
+
+  // Voice recording handlers
+  const startVoiceRecording = async () => {
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('Microphone API not supported');
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      
+      let mimeType = 'audio/webm';
+      if (typeof MediaRecorder !== 'undefined') {
+        if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+          mimeType = 'audio/webm;codecs=opus';
+        } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+          mimeType = 'audio/mp4';
+        } else if (MediaRecorder.isTypeSupported('audio/ogg')) {
+          mimeType = 'audio/ogg';
+        }
+      }
+
+      const recorder = new MediaRecorder(stream, { mimeType });
+      audioChunksRef.current = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+
+      recorder.onstop = () => {
+        const blob = new Blob(audioChunksRef.current, { type: mimeType });
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setComplaintAudioData(reader.result as string);
+        };
+        reader.readAsDataURL(blob);
+      };
+
+      recorder.start(100);
+      mediaRecorderRef.current = recorder;
+      setIsRecording(true);
+      setRecordingTime(0);
+
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingTime((prev) => {
+          setAudioDurationSec(prev + 1);
+          return prev + 1;
+        });
+      }, 1000);
+    } catch (err: any) {
+      console.warn('Microphone permission or device error:', err);
+      if (confirm('Microphone permission is blocked by browser or unavailable. Would you like to generate a Sample Voice Complaint Audio Note automatically?')) {
+        generateSampleVoiceNote();
+      }
+    }
+  };
+
+  const stopVoiceRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      mediaRecorderRef.current.stream.getTracks().forEach((track) => track.stop());
+      setIsRecording(false);
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+    }
+  };
+
+  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const MAX_WIDTH = 1000;
+          const MAX_HEIGHT = 1000;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > MAX_WIDTH) {
+              height *= MAX_WIDTH / width;
+              width = MAX_WIDTH;
+            }
+          } else {
+            if (height > MAX_HEIGHT) {
+              width *= MAX_HEIGHT / height;
+              height = MAX_HEIGHT;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, width, height);
+            const compressed = canvas.toDataURL('image/jpeg', 0.75);
+            setComplaintForm((prev) => ({ ...prev, photoUrl: compressed }));
+          } else {
+            setComplaintForm((prev) => ({ ...prev, photoUrl: event.target?.result as string }));
+          }
+        };
+        img.src = event.target?.result as string;
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -300,6 +681,176 @@ export default function App() {
     }
   };
 
+  const handleDepositSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentToken) {
+      setActiveTab('tester');
+      setAuthError('Please register or login first to submit recycling deposits and calculate CO2 impact!');
+      return;
+    }
+
+    setDepositLoading(true);
+    setDepositResultMsg(null);
+
+    try {
+      const res = await fetch('/api/recycling', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${currentToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          itemType: depositForm.itemType,
+          weightKg: Number(depositForm.weightKg),
+          location: depositForm.location
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Failed to submit deposit');
+
+      setDepositResultMsg({ msg: data.message, success: true });
+
+      if (currentUser) {
+        const addedPts = data.deposit?.pointsEarned || 30;
+        setCurrentUser({ ...currentUser, greenPoints: currentUser.greenPoints + addedPts });
+      }
+
+      fetchRecyclingData();
+      fetchLeaderboard();
+    } catch (err: any) {
+      setDepositResultMsg({ msg: err.message, success: false });
+    } finally {
+      setDepositLoading(false);
+    }
+  };
+
+  const handleAuditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentToken) {
+      setActiveTab('tester');
+      setAuthError('Please register or login first to perform a Departmental Gemini AI Eco-Audit!');
+      return;
+    }
+
+    setAuditSubmitting(true);
+    setLatestAuditResult(null);
+
+    try {
+      const res = await fetch('/api/audit/analyze', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${currentToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          department: auditForm.department,
+          monthlyElectricityKwh: Number(auditForm.monthlyElectricityKwh),
+          dailyPlasticBottles: Number(auditForm.dailyPlasticBottles),
+          paperReamsPerMonth: Number(auditForm.paperReamsPerMonth),
+          acHoursPerDay: Number(auditForm.acHoursPerDay),
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Failed to complete Eco Audit');
+
+      setLatestAuditResult(data.audit);
+
+      if (currentUser) {
+        setCurrentUser({ ...currentUser, greenPoints: currentUser.greenPoints + 150 });
+      }
+
+      fetchAuditData();
+      fetchLeaderboard();
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setAuditSubmitting(false);
+    }
+  };
+
+  const handleComplaintSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentToken) {
+      setActiveTab('tester');
+      setAuthError('Please register or login first to broadcast a student voice complaint!');
+      return;
+    }
+
+    setComplaintSubmitting(true);
+
+    try {
+      const res = await fetch('/api/complaints', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${currentToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          title: complaintForm.title,
+          location: complaintForm.location,
+          description: complaintForm.description,
+          photoUrl: complaintForm.photoUrl,
+          audioData: complaintAudioData,
+          audioDurationSec: audioDurationSec || 12,
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Failed to submit complaint');
+
+      alert('Voice Complaint Broadcasted to CSJMU Campus! Earned +75 Green Points.');
+
+      setComplaintForm({
+        title: '',
+        location: 'CSJMU Campus Garden',
+        description: '',
+        photoUrl: '',
+      });
+      setComplaintAudioData('');
+      setAudioDurationSec(0);
+
+      if (currentUser) {
+        setCurrentUser({ ...currentUser, greenPoints: currentUser.greenPoints + 75 });
+      }
+
+      fetchComplaints();
+      fetchLeaderboard();
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setComplaintSubmitting(false);
+    }
+  };
+
+  const handleUpvoteComplaint = async (id: string) => {
+    if (!currentToken) {
+      setActiveTab('tester');
+      setAuthError('Please register or login first to upvote campus reports!');
+      return;
+    }
+
+    setUpvotingId(id);
+    try {
+      const res = await fetch(`/api/complaints/${id}/upvote`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${currentToken}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Failed to upvote');
+
+      fetchComplaints();
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setUpvotingId(null);
+    }
+  };
+
   const categoryIcons: Record<string, any> = {
     TreePlantation: TreePine,
     EWasteCollection: Recycle,
@@ -371,6 +922,9 @@ export default function App() {
           <nav className="flex items-center gap-2 overflow-x-auto">
             {[
               { id: 'initiatives', label: 'Campus Drives', icon: Leaf },
+              { id: 'complaints', label: 'Voice & Photo Complaints', icon: Mic },
+              { id: 'recycling', label: 'E-Waste & Recycling', icon: Recycle },
+              { id: 'audit', label: 'AI Campus Eco-Audit', icon: Brain },
               { id: 'leaderboard', label: 'Green Leaderboard', icon: Trophy },
               { id: 'tester', label: 'Auth & JWT Tester', icon: KeyRound },
               { id: 'overview', label: 'System Architecture', icon: Layers },
@@ -407,7 +961,6 @@ export default function App() {
         {/* Tab 1: Campus Initiatives */}
         {activeTab === 'initiatives' && (
           <div className="space-y-6">
-            {/* Category Filter Pills */}
             <div className="flex items-center gap-2 overflow-x-auto pb-2">
               <span className="text-xs text-slate-400 flex items-center gap-1 mr-1">
                 <Filter className="w-3.5 h-3.5" /> Category:
@@ -526,7 +1079,627 @@ export default function App() {
           </div>
         )}
 
-        {/* Tab 2: Green Leaderboard */}
+        {/* Tab 2: Voice & Photo Campus Complaints */}
+        {activeTab === 'complaints' && (
+          <div className="space-y-6">
+            <div className="bg-gradient-to-r from-rose-950/40 via-slate-950 to-amber-950/40 p-6 rounded-2xl border border-rose-500/20 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Mic className="w-5 h-5 text-rose-400" />
+                  <h2 className="text-lg font-bold text-white">CSJMU Student Voice & Photo Complaint Broadcast</h2>
+                </div>
+                <p className="text-xs text-slate-400">
+                  Record audio voice notes, snap photos of campus littering/garden issues, alert student peers, and get Gemini AI corrective recommendations!
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-xs bg-rose-500/10 text-rose-300 border border-rose-500/20 px-3 py-1.5 rounded-xl font-mono flex items-center gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-400" /> Student Vigilance (+75 PTS)
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              {/* Left Column: Voice Note & Photo Upload Form */}
+              <div className="lg:col-span-5 bg-slate-950 p-6 rounded-2xl border border-slate-800 space-y-4">
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <Mic className="w-4 h-4 text-rose-400" /> Record & Submit Voice Report
+                </h3>
+
+                <form onSubmit={handleComplaintSubmit} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1">Issue Title</label>
+                    <input
+                      type="text"
+                      value={complaintForm.title}
+                      onChange={(e) => setComplaintForm({ ...complaintForm, title: e.target.value })}
+                      placeholder="e.g. 5 students throwing plastic garbage in Garden"
+                      className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-rose-500"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1">Campus Location</label>
+                    <input
+                      type="text"
+                      value={complaintForm.location}
+                      onChange={(e) => setComplaintForm({ ...complaintForm, location: e.target.value })}
+                      placeholder="e.g. Central Lawn near UIET Benches"
+                      className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-rose-500"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1">Text Complaint Details</label>
+                    <textarea
+                      rows={2}
+                      value={complaintForm.description}
+                      onChange={(e) => setComplaintForm({ ...complaintForm, description: e.target.value })}
+                      placeholder="Describe what happened or what needs cleanup..."
+                      className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-rose-500"
+                      required
+                    />
+                  </div>
+
+                  {/* Audio Voice Recording Box */}
+                  <div className="p-4 bg-slate-900 rounded-xl border border-slate-800 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-rose-300 flex items-center gap-1.5">
+                        <Volume2 className="w-4 h-4 text-rose-400" /> Live Voice Note Recorder
+                      </span>
+                      {isRecording && (
+                        <span className="text-xs font-mono text-rose-400 animate-pulse flex items-center gap-1">
+                          <Radio className="w-3.5 h-3.5" /> Recording: {recordingTime}s
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row items-center gap-2">
+                      {!isRecording ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={startVoiceRecording}
+                            className="w-full sm:flex-1 bg-rose-500 hover:bg-rose-400 text-slate-950 font-bold py-2 rounded-lg text-xs flex items-center justify-center gap-2 transition"
+                          >
+                            <Mic className="w-4 h-4" /> Record Mic
+                          </button>
+                          <button
+                            type="button"
+                            onClick={generateSampleVoiceNote}
+                            className="w-full sm:w-auto bg-slate-800 hover:bg-slate-700 text-rose-300 border border-slate-700 font-semibold py-2 px-3 rounded-lg text-xs flex items-center justify-center gap-1.5 transition whitespace-nowrap"
+                            title="Generate a sample voice audio note without needing a microphone"
+                          >
+                            <Volume2 className="w-3.5 h-3.5 text-rose-400" /> Sample Voice
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={stopVoiceRecording}
+                          className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold py-2 rounded-lg text-xs flex items-center justify-center gap-2 transition"
+                        >
+                          <Square className="w-4 h-4" /> Stop & Save Voice Note
+                        </button>
+                      )}
+                    </div>
+
+                    {complaintAudioData && (
+                      <div className="pt-2">
+                        <p className="text-[10px] text-emerald-400 font-semibold mb-1">✓ Voice Note Captured ({audioDurationSec}s):</p>
+                        <audio src={complaintAudioData} controls className="w-full h-8 rounded" />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Photo Upload / Attachment Box */}
+                  <div className="p-4 bg-slate-900 rounded-xl border border-slate-800 space-y-3">
+                    <label className="block text-xs font-bold text-teal-300 flex items-center gap-1.5">
+                      <Camera className="w-4 h-4 text-teal-400" /> Photo Evidence Attachment
+                    </label>
+
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handlePhotoUpload}
+                        className="hidden"
+                        id="photo-upload-input"
+                      />
+                      <label
+                        htmlFor="photo-upload-input"
+                        className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold py-2 rounded-lg text-xs flex items-center justify-center gap-2 cursor-pointer transition"
+                      >
+                        <Upload className="w-3.5 h-3.5 text-teal-400" /> Snap / Upload Camera Photo
+                      </label>
+                    </div>
+
+                    {complaintForm.photoUrl && (
+                      <div className="relative rounded-lg overflow-hidden border border-slate-700 max-h-36">
+                        <img src={complaintForm.photoUrl} alt="Complaint preview" className="w-full object-cover" />
+                      </div>
+                    )}
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={complaintSubmitting}
+                    className="w-full bg-rose-500 hover:bg-rose-400 text-slate-950 font-bold py-2.5 rounded-xl transition flex items-center justify-center gap-2 text-xs shadow-lg shadow-rose-950/40"
+                  >
+                    {complaintSubmitting ? (
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <>
+                        <Mic className="w-4 h-4" /> Broadcast Voice Complaint (+75 PTS)
+                      </>
+                    )}
+                  </button>
+                </form>
+              </div>
+
+              {/* Right Column: Live Student Complaints Feed */}
+              <div className="lg:col-span-7 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <MessageSquare className="w-4 h-4 text-rose-400" /> Campus Voice Reports & Peer Upvotes
+                  </h3>
+                  <button
+                    onClick={fetchComplaints}
+                    disabled={loadingComplaints}
+                    className="text-xs bg-slate-950 hover:bg-slate-800 text-slate-300 px-3 py-1.5 rounded-lg border border-slate-800 flex items-center gap-1.5"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${loadingComplaints ? 'animate-spin' : ''}`} /> Refresh Feed
+                  </button>
+                </div>
+
+                {loadingComplaints ? (
+                  <div className="flex items-center justify-center py-16 text-slate-400 gap-3">
+                    <RefreshCw className="w-5 h-5 animate-spin text-rose-400" />
+                    <span>Loading student voice reports...</span>
+                  </div>
+                ) : complaints.length === 0 ? (
+                  <div className="bg-slate-950 p-12 rounded-2xl border border-slate-800 text-center">
+                    <Mic className="w-10 h-10 text-slate-600 mx-auto mb-3" />
+                    <h3 className="text-base font-semibold text-slate-300">No voice complaints active</h3>
+                    <p className="text-xs text-slate-500 mt-1">CSJMU campus garden & facilities are clean!</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4 max-h-[680px] overflow-y-auto pr-1">
+                    {complaints.map((item) => (
+                      <div
+                        key={item._id}
+                        className="bg-slate-950 p-5 rounded-2xl border border-slate-800 space-y-3 hover:border-slate-700 transition"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <span className="text-[10px] font-bold text-rose-400 uppercase tracking-wider bg-rose-500/10 border border-rose-500/20 px-2 py-0.5 rounded">
+                              {item.status}
+                            </span>
+                            <h4 className="text-sm font-bold text-white leading-snug mt-1.5">{item.title}</h4>
+                            <p className="text-[11px] text-slate-400 flex items-center gap-1 mt-0.5">
+                              <MapPin className="w-3 h-3 text-amber-400" /> {item.location}
+                            </p>
+                          </div>
+
+                          <button
+                            onClick={() => handleUpvoteComplaint(item._id)}
+                            disabled={upvotingId === item._id}
+                            className="bg-slate-900 hover:bg-slate-800 border border-slate-700 px-3 py-1.5 rounded-xl text-xs font-bold text-emerald-400 flex items-center gap-1.5 shrink-0 transition"
+                          >
+                            <ThumbsUp className="w-3.5 h-3.5" />
+                            <span>{item.upvotes} Upvotes</span>
+                          </button>
+                        </div>
+
+                        <p className="text-xs text-slate-300 leading-relaxed bg-slate-900/60 p-3 rounded-xl border border-slate-800/80">
+                          "{item.description}"
+                        </p>
+
+                        {/* Audio Voice Player */}
+                        {item.audioData ? (
+                          <div className="p-3 bg-rose-950/20 border border-rose-500/20 rounded-xl space-y-1">
+                            <p className="text-[10px] font-bold text-rose-300 flex items-center gap-1">
+                              <Volume2 className="w-3.5 h-3.5" /> Student Voice Complaint ({item.audioDurationSec || 12}s)
+                            </p>
+                            <audio src={item.audioData} controls className="w-full h-8 rounded" />
+                          </div>
+                        ) : (
+                          <div className="p-2.5 bg-slate-900 border border-slate-800/80 rounded-xl text-[11px] text-slate-400 flex items-center gap-2">
+                            <Volume2 className="w-3.5 h-3.5 text-slate-500" />
+                            <span>Voice complaint audio archived by student</span>
+                          </div>
+                        )}
+
+                        {/* Photo Attachment Preview */}
+                        {item.photoUrl && (
+                          <div className="rounded-xl overflow-hidden border border-slate-800 max-h-48">
+                            <img src={item.photoUrl} alt="Evidence" className="w-full object-cover max-h-48" />
+                          </div>
+                        )}
+
+                        {/* Gemini AI Corrective Analysis */}
+                        {item.aiAnalysis && (
+                          <div className="p-3 rounded-xl bg-slate-900/90 border border-emerald-500/20 text-xs space-y-1">
+                            <p className="text-[10px] font-bold text-emerald-400 flex items-center gap-1">
+                              <Brain className="w-3.5 h-3.5" /> Gemini AI Assessment:
+                            </p>
+                            <p className="text-slate-300 text-[11px] leading-relaxed">{item.aiAnalysis}</p>
+                          </div>
+                        )}
+
+                        <div className="pt-2 border-t border-slate-900 flex items-center justify-between text-[11px] text-slate-500">
+                          <span>Reported by: <strong className="text-slate-300">{item.studentName}</strong> ({item.department})</span>
+                          <span>{new Date(item.createdAt).toLocaleDateString()}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Tab 3: E-Waste & Recycling Hub */}
+        {activeTab === 'recycling' && (
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 flex items-center gap-4">
+                <div className="w-12 h-12 rounded-xl bg-teal-500/10 border border-teal-500/20 flex items-center justify-center text-teal-400">
+                  <Scale className="w-6 h-6" />
+                </div>
+                <div>
+                  <p className="text-xs text-slate-400 font-medium">Total Recycled</p>
+                  <p className="text-xl font-bold text-white font-mono mt-0.5">
+                    {recyclingAnalytics ? `${recyclingAnalytics.totalKgRecycled} kg` : '15.0 kg'}
+                  </p>
+                  <p className="text-[10px] text-teal-400">E-Waste & Plastic logged</p>
+                </div>
+              </div>
+
+              <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 flex items-center gap-4">
+                <div className="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                  <CloudSun className="w-6 h-6" />
+                </div>
+                <div>
+                  <p className="text-xs text-slate-400 font-medium">CO2 Offset Impact</p>
+                  <p className="text-xl font-bold text-emerald-400 font-mono mt-0.5">
+                    {recyclingAnalytics ? `${recyclingAnalytics.totalCo2SavedKg} kg CO₂` : '26.95 kg CO₂'}
+                  </p>
+                  <p className="text-[10px] text-emerald-300">Emissions prevented</p>
+                </div>
+              </div>
+
+              <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 flex items-center gap-4">
+                <div className="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+                  <Award className="w-6 h-6" />
+                </div>
+                <div>
+                  <p className="text-xs text-slate-400 font-medium">Eco Points Awarded</p>
+                  <p className="text-xl font-bold text-amber-400 font-mono mt-0.5">
+                    {recyclingAnalytics ? `${recyclingAnalytics.totalPointsDistributed} PTS` : '195 PTS'}
+                  </p>
+                  <p className="text-[10px] text-amber-300">Distributed to volunteers</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              <div className="lg:col-span-5 bg-slate-950 p-6 rounded-2xl border border-slate-800 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center gap-2 mb-4">
+                    <Recycle className="w-5 h-5 text-emerald-400" />
+                    <h3 className="text-base font-bold text-white">Log Recycling Deposit</h3>
+                  </div>
+                  <p className="text-xs text-slate-400 mb-4 leading-relaxed">
+                    Submit campus e-waste, plastic, or paper deposits to earn Green Points and calculate your carbon offset score via backend API.
+                  </p>
+
+                  <form onSubmit={handleDepositSubmit} className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-300 mb-1">Waste Category</label>
+                      <select
+                        value={depositForm.itemType}
+                        onChange={(e) => setDepositForm({ ...depositForm, itemType: e.target.value })}
+                        className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500"
+                      >
+                        <option value="EWaste">E-Waste (Circuit boards, batteries, cables)</option>
+                        <option value="Plastic">Plastic Bottles & Packaging</option>
+                        <option value="Paper">Paper & Cardboard Waste</option>
+                        <option value="Metal">Metal Scraps & Cans</option>
+                        <option value="Glass">Glass Containers</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-300 mb-1">Weight (in Kilograms)</label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        min="0.1"
+                        value={depositForm.weightKg}
+                        onChange={(e) => setDepositForm({ ...depositForm, weightKg: e.target.value })}
+                        className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-300 mb-1">Deposit Location</label>
+                      <input
+                        type="text"
+                        value={depositForm.location}
+                        onChange={(e) => setDepositForm({ ...depositForm, location: e.target.value })}
+                        className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500"
+                        required
+                      />
+                    </div>
+
+                    {depositResultMsg && (
+                      <div className={`p-3 rounded-xl text-xs ${depositResultMsg.success ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-300 border border-rose-500/20'}`}>
+                        {depositResultMsg.msg}
+                      </div>
+                    )}
+
+                    <button
+                      type="submit"
+                      disabled={depositLoading}
+                      className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold py-2.5 rounded-xl transition flex items-center justify-center gap-2 text-xs shadow-lg shadow-emerald-950/40"
+                    >
+                      {depositLoading ? (
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <>
+                          <PackageCheck className="w-4 h-4" /> Submit Deposit & Calculate Carbon Offset
+                        </>
+                      )}
+                    </button>
+                  </form>
+                </div>
+              </div>
+
+              <div className="lg:col-span-7 bg-slate-950 p-6 rounded-2xl border border-slate-800 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-base font-bold text-white flex items-center gap-2">
+                      <Scale className="w-4 h-4 text-teal-400" /> CSJMU Campus Deposit Log
+                    </h3>
+                    <button
+                      onClick={fetchRecyclingData}
+                      disabled={loadingRecycling}
+                      className="text-xs bg-slate-900 hover:bg-slate-800 text-slate-300 px-3 py-1.5 rounded-lg border border-slate-800 flex items-center gap-1.5"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${loadingRecycling ? 'animate-spin' : ''}`} /> Refresh
+                    </button>
+                  </div>
+
+                  <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
+                    {deposits.map((item) => (
+                      <div
+                        key={item._id}
+                        className="p-4 rounded-xl bg-slate-900 border border-slate-800/80 flex items-center justify-between hover:border-slate-700 transition"
+                      >
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-white">{item.userName}</span>
+                            <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">
+                              {item.itemType}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-400 flex items-center gap-2">
+                            <span>{item.weightKg} kg</span> • 
+                            <span className="text-teal-400 font-semibold">{item.co2SavedKg} kg CO₂ saved</span>
+                          </p>
+                          <p className="text-[10px] text-slate-500">{item.location}</p>
+                        </div>
+
+                        <div className="text-right">
+                          <span className="text-xs font-bold text-emerald-400 font-mono bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-lg">
+                            +{item.pointsEarned} PTS
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Tab 4: AI Campus Eco-Audit & Energy Analyzer */}
+        {activeTab === 'audit' && (
+          <div className="space-y-6">
+            <div className="bg-gradient-to-r from-emerald-950/40 via-slate-950 to-teal-950/40 p-6 rounded-2xl border border-emerald-500/20 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Brain className="w-5 h-5 text-emerald-400" />
+                  <h2 className="text-lg font-bold text-white">Gemini AI Departmental Sustainability & Eco-Audit</h2>
+                </div>
+                <p className="text-xs text-slate-400">
+                  Input energy consumption & waste patterns to compute carbon footprint estimates, generate Gemini AI recommendations, and earn +150 Green Points!
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <span className="text-xs bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 px-3 py-1.5 rounded-xl font-mono">
+                  Gemini-3.6-Flash Engine Active
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              <div className="lg:col-span-5 bg-slate-950 p-6 rounded-2xl border border-slate-800 space-y-4">
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <Building2 className="w-4 h-4 text-emerald-400" /> Run Departmental Eco-Audit
+                </h3>
+
+                <form onSubmit={handleAuditSubmit} className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1">Department / Facility Name</label>
+                    <input
+                      type="text"
+                      value={auditForm.department}
+                      onChange={(e) => setAuditForm({ ...auditForm, department: e.target.value })}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1">Monthly Electricity (kWh)</label>
+                    <input
+                      type="number"
+                      value={auditForm.monthlyElectricityKwh}
+                      onChange={(e) => setAuditForm({ ...auditForm, monthlyElectricityKwh: e.target.value })}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500"
+                      required
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-300 mb-1">Daily Plastic Bottles</label>
+                      <input
+                        type="number"
+                        value={auditForm.dailyPlasticBottles}
+                        onChange={(e) => setAuditForm({ ...auditForm, dailyPlasticBottles: e.target.value })}
+                        className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-300 mb-1">Paper Reams / Mo.</label>
+                      <input
+                        type="number"
+                        value={auditForm.paperReamsPerMonth}
+                        onChange={(e) => setAuditForm({ ...auditForm, paperReamsPerMonth: e.target.value })}
+                        className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1">AC Usage (Hours per day)</label>
+                    <input
+                      type="number"
+                      value={auditForm.acHoursPerDay}
+                      onChange={(e) => setAuditForm({ ...auditForm, acHoursPerDay: e.target.value })}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500"
+                      required
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={auditSubmitting}
+                    className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold py-2.5 rounded-xl transition flex items-center justify-center gap-2 text-xs shadow-lg shadow-emerald-950/40 mt-2"
+                  >
+                    {auditSubmitting ? (
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <>
+                        <Brain className="w-4 h-4" /> Run Gemini AI Eco Audit (+150 PTS)
+                      </>
+                    )}
+                  </button>
+                </form>
+              </div>
+
+              <div className="lg:col-span-7 space-y-6">
+                {latestAuditResult ? (
+                  <div className="bg-slate-950 p-6 rounded-2xl border border-emerald-500/30 space-y-4">
+                    <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                      <div>
+                        <span className="text-[10px] uppercase tracking-wider font-bold text-emerald-400">Gemini AI Audit Result</span>
+                        <h3 className="text-base font-bold text-white">{latestAuditResult.department}</h3>
+                      </div>
+
+                      <div className="text-right">
+                        <span className="text-2xl font-black text-emerald-400 font-mono">
+                          {latestAuditResult.calculatedEcoScore}/100
+                        </span>
+                        <p className="text-[10px] text-slate-400">Department Eco Score</p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4 bg-slate-900 p-3 rounded-xl border border-slate-800">
+                      <div>
+                        <p className="text-[11px] text-slate-400">Est. Monthly Carbon Footprint</p>
+                        <p className="text-base font-bold text-amber-400 font-mono">
+                          {latestAuditResult.estimatedMonthlyCo2Kg} kg CO₂
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[11px] text-slate-400">Auditor Name</p>
+                        <p className="text-sm font-semibold text-white">{latestAuditResult.userName}</p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold text-emerald-300 flex items-center gap-1.5">
+                        <Lightbulb className="w-4 h-4 text-emerald-400" /> Gemini AI Recommendations:
+                      </p>
+                      <ul className="space-y-1.5">
+                        {latestAuditResult.aiRecommendations.map((rec, i) => (
+                          <li key={i} className="text-xs text-slate-300 bg-slate-900 p-2.5 rounded-lg border border-slate-800 flex items-start gap-2">
+                            <CheckCircle className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                            <span>{rec}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 text-center py-8">
+                    <Brain className="w-8 h-8 text-emerald-400 mx-auto mb-2 opacity-60" />
+                    <h4 className="text-sm font-semibold text-slate-200">No recent audit executed in current session</h4>
+                    <p className="text-xs text-slate-500 mt-1">Submit the audit form to generate live AI carbon footprint recommendations.</p>
+                  </div>
+                )}
+
+                <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      <TrendingDown className="w-4 h-4 text-teal-400" /> Department Green Eco Score Rankings
+                    </h3>
+                    <button
+                      onClick={fetchAuditData}
+                      disabled={loadingAudit}
+                      className="text-xs bg-slate-900 text-slate-300 px-2.5 py-1 rounded border border-slate-800"
+                    >
+                      Refresh
+                    </button>
+                  </div>
+
+                  <div className="space-y-2">
+                    {deptRankings.map((rk, idx) => (
+                      <div key={idx} className="p-3 bg-slate-900 rounded-xl border border-slate-800/80 flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs font-bold text-slate-400 font-mono">#{idx + 1}</span>
+                          <div>
+                            <p className="text-xs font-semibold text-white">{rk.department}</p>
+                            <p className="text-[10px] text-slate-400">{rk.totalMonthlyCo2Kg} kg CO₂ / mo • {rk.auditsCount} audits</p>
+                          </div>
+                        </div>
+
+                        <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-lg font-mono">
+                          {rk.avgEcoScore} Score
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Tab 5: Green Leaderboard */}
         {activeTab === 'leaderboard' && (
           <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 space-y-6">
             <div className="flex items-center justify-between">
@@ -582,25 +1755,30 @@ export default function App() {
           </div>
         )}
 
-        {/* Tab 3: Auth & JWT Tester */}
+        {/* Tab 6: Auth & JWT Tester */}
         {activeTab === 'tester' && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-            <div className="lg:col-span-5 bg-slate-950 p-6 rounded-2xl border border-slate-800">
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-base font-semibold text-white flex items-center gap-2">
-                  <KeyRound className="w-4 h-4 text-emerald-400" />
-                  JWT Authentication API Tester
-                </h3>
-                <div className="flex bg-slate-900 p-1 rounded-lg border border-slate-800 text-xs">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <div className="lg:col-span-6 bg-slate-950 p-6 rounded-2xl border border-slate-800 space-y-5">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                <div className="flex items-center gap-2">
+                  <KeyRound className="w-5 h-5 text-emerald-400" />
+                  <h3 className="text-base font-bold text-white">Student & Faculty Auth Terminal</h3>
+                </div>
+
+                <div className="flex items-center bg-slate-900 p-1 rounded-xl border border-slate-800">
                   <button
                     onClick={() => setAuthMode('register')}
-                    className={`px-3 py-1 rounded-md font-medium transition ${authMode === 'register' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400 hover:text-white'}`}
+                    className={`px-3 py-1 rounded-lg text-xs font-semibold transition ${
+                      authMode === 'register' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400'
+                    }`}
                   >
                     Register
                   </button>
                   <button
                     onClick={() => setAuthMode('login')}
-                    className={`px-3 py-1 rounded-md font-medium transition ${authMode === 'login' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400 hover:text-white'}`}
+                    className={`px-3 py-1 rounded-lg text-xs font-semibold transition ${
+                      authMode === 'login' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400'
+                    }`}
                   >
                     Login
                   </button>
@@ -622,7 +1800,7 @@ export default function App() {
                 )}
 
                 <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">Email Address</label>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">CSJMU Email Address</label>
                   <input
                     type="email"
                     value={formData.email}
@@ -646,12 +1824,13 @@ export default function App() {
                 {authMode === 'register' && (
                   <>
                     <div>
-                      <label className="block text-xs font-medium text-slate-300 mb-1">Department</label>
+                      <label className="block text-xs font-medium text-slate-300 mb-1">Campus Department</label>
                       <input
                         type="text"
                         value={formData.department}
                         onChange={(e) => setFormData({ ...formData, department: e.target.value })}
                         className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500"
+                        required
                       />
                     </div>
 
@@ -663,250 +1842,242 @@ export default function App() {
                         className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500"
                       >
                         <option value="student">Student</option>
-                        <option value="faculty">Faculty</option>
-                        <option value="admin">Admin</option>
+                        <option value="faculty">Faculty Member</option>
+                        <option value="volunteer">Green Army Volunteer</option>
                       </select>
                     </div>
                   </>
                 )}
 
+                {authError && (
+                  <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-300 rounded-xl text-xs">
+                    {authError}
+                  </div>
+                )}
+
                 <button
                   type="submit"
                   disabled={authLoading}
-                  className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold py-2.5 rounded-lg transition flex items-center justify-center gap-2 text-sm mt-2"
+                  className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold py-2.5 rounded-xl transition flex items-center justify-center gap-2 text-xs shadow-lg shadow-emerald-950/40"
                 >
                   {authLoading ? (
                     <RefreshCw className="w-4 h-4 animate-spin" />
                   ) : authMode === 'register' ? (
                     <>
-                      <UserPlus className="w-4 h-4" /> Register User API
+                      <UserPlus className="w-4 h-4" /> Register & Authenticate JWT
                     </>
                   ) : (
                     <>
-                      <LogIn className="w-4 h-4" /> Login User API
+                      <LogIn className="w-4 h-4" /> Login to Campus Account
                     </>
                   )}
                 </button>
               </form>
+            </div>
 
-              {currentToken && (
-                <div className="mt-6 pt-6 border-t border-slate-800">
+            <div className="lg:col-span-6 bg-slate-950 p-6 rounded-2xl border border-slate-800 space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <Terminal className="w-4 h-4 text-emerald-400" /> Active JWT Authorization Token
+                </h3>
+
+                {currentToken && (
                   <button
                     onClick={handleFetchMe}
                     disabled={authLoading}
-                    className="w-full bg-slate-800 hover:bg-slate-700 text-emerald-400 font-medium py-2 rounded-lg border border-slate-700 transition flex items-center justify-center gap-2 text-xs"
+                    className="text-xs bg-slate-900 hover:bg-slate-800 text-emerald-400 border border-emerald-500/30 px-3 py-1 rounded-lg flex items-center gap-1.5 font-mono"
                   >
-                    <UserCheck className="w-4 h-4" /> Test GET /api/auth/me (Protected Route)
+                    <UserCheck className="w-3.5 h-3.5" /> Verify GET /api/auth/me
                   </button>
-                </div>
-              )}
-            </div>
-
-            {/* Response console */}
-            <div className="lg:col-span-7 bg-slate-950 p-6 rounded-2xl border border-slate-800 flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
-                    <Terminal className="w-4 h-4 text-teal-400" />
-                    API Response Console
-                  </h3>
-                  {authResult && (
-                    <span className="text-xs px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">
-                      HTTP 200 / 201 OK
-                    </span>
-                  )}
-                </div>
-
-                {authError && (
-                  <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-xs text-rose-300 mb-4">
-                    <strong>API Error:</strong> {authError}
-                  </div>
                 )}
-
-                {currentUser && (
-                  <div className="mb-4 p-4 rounded-xl bg-slate-900 border border-slate-800">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs text-slate-400">Authenticated Active Session</span>
-                      <span className="text-xs text-emerald-400 font-semibold">{currentUser.greenPoints} Green Points</span>
-                    </div>
-                    <p className="text-sm font-semibold text-white">{currentUser.name}</p>
-                    <p className="text-xs text-slate-400">{currentUser.email} • {currentUser.department} ({currentUser.role})</p>
-                  </div>
-                )}
-
-                <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 font-mono text-xs overflow-x-auto min-h-[220px] max-h-[350px]">
-                  {authResult ? (
-                    <pre className="text-emerald-300 leading-relaxed">
-                      {JSON.stringify(authResult, null, 2)}
-                    </pre>
-                  ) : (
-                    <div className="h-full flex flex-col items-center justify-center text-slate-500 py-12 text-center">
-                      <Code2 className="w-8 h-8 mb-2 opacity-50" />
-                      <p>Submit registration or login to execute request to backend</p>
-                    </div>
-                  )}
-                </div>
               </div>
 
-              {currentToken && (
-                <div className="mt-4 pt-4 border-t border-slate-800">
-                  <p className="text-xs text-slate-400 mb-1">Bearer Token:</p>
-                  <p className="text-xs font-mono text-slate-300 truncate bg-slate-900 p-2 rounded border border-slate-800">
-                    {currentToken}
-                  </p>
+              {currentToken ? (
+                <div className="space-y-4">
+                  <div className="p-3 rounded-xl bg-slate-900 border border-slate-800">
+                    <p className="text-[11px] text-slate-400 mb-1 font-mono">Bearer Token String:</p>
+                    <p className="text-xs font-mono text-emerald-400 break-all bg-slate-950 p-2.5 rounded-lg border border-slate-800">
+                      {currentToken}
+                    </p>
+                  </div>
+
+                  {currentUser && (
+                    <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-emerald-300">{currentUser.name}</span>
+                        <span className="text-xs font-mono bg-emerald-500/20 px-2 py-0.5 rounded text-emerald-400 font-bold">
+                          {currentUser.greenPoints} Green Points
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-300">{currentUser.email} • {currentUser.department}</p>
+                    </div>
+                  )}
+
+                  {authResult && (
+                    <div className="space-y-1">
+                      <span className="text-[11px] text-slate-400 font-mono">API JSON Payload Output:</span>
+                      <pre className="text-[11px] font-mono text-slate-300 bg-slate-900 p-3 rounded-xl border border-slate-800 overflow-x-auto max-h-48">
+                        {JSON.stringify(authResult, null, 2)}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="p-8 text-center text-slate-500 space-y-2">
+                  <ShieldCheck className="w-8 h-8 text-slate-600 mx-auto" />
+                  <p className="text-xs text-slate-400">No active JWT session.</p>
+                  <p className="text-[11px]">Register or login on the left form to issue an HTTP Bearer Token.</p>
                 </div>
               )}
             </div>
           </div>
         )}
 
-        {/* Tab 4: System Architecture Overview */}
+        {/* Tab 7: System Architecture */}
         {activeTab === 'overview' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 flex flex-col justify-between">
-              <div>
-                <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center mb-4 border border-blue-500/20">
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 space-y-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
                   <Server className="w-5 h-5" />
                 </div>
-                <h3 className="text-base font-semibold text-white mb-1">Express Server Entry</h3>
-                <p className="text-xs text-slate-400 leading-relaxed mb-4">
-                  Configured in <code className="text-emerald-400 bg-slate-900 px-1 py-0.5 rounded">server.ts</code> with Vite development middleware, CORS policy, body parsers, and global error handlers.
+                <h3 className="text-base font-bold text-white">Express REST Engine</h3>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Modular Express route controllers with TypeScript support, async error handling, bcrypt password hashing, and JWT authorization middleware.
                 </p>
               </div>
-              <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
-                <span>Port: 3000</span>
-                <span className="text-emerald-400 font-mono">/api/*</span>
-              </div>
-            </div>
 
-            <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 flex flex-col justify-between">
-              <div>
-                <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center mb-4 border border-emerald-500/20">
+              <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 space-y-3">
+                <div className="w-10 h-10 rounded-xl bg-teal-500/10 border border-teal-500/20 flex items-center justify-center text-teal-400">
+                  <Brain className="w-5 h-5" />
+                </div>
+                <h3 className="text-base font-bold text-white">Gemini AI & Multimodal</h3>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Integrated `@google/genai` SDK using `gemini-3.6-flash` for departmental carbon footprint recommendations and voice complaint corrective reports.
+                </p>
+              </div>
+
+              <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 space-y-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
                   <Database className="w-5 h-5" />
                 </div>
-                <h3 className="text-base font-semibold text-white mb-1">MongoDB & Fallback Layer</h3>
-                <p className="text-xs text-slate-400 leading-relaxed mb-4">
-                  Handled in <code className="text-emerald-400 bg-slate-900 px-1 py-0.5 rounded">src/config/db.ts</code> with non-blocking buffer policy and in-memory store for smooth offline fallback.
+                <h3 className="text-base font-bold text-white">Dual Storage Persistence</h3>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Seamlessly bridges Mongoose MongoDB schemas with high-speed in-memory campus stores to guarantee zero downtime and instant response.
                 </p>
-              </div>
-              <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
-                <span>Database</span>
-                <span className="text-emerald-400 font-mono">green_csjmu</span>
-              </div>
-            </div>
-
-            <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 flex flex-col justify-between">
-              <div>
-                <div className="w-10 h-10 rounded-xl bg-purple-500/10 text-purple-400 flex items-center justify-center mb-4 border border-purple-500/20">
-                  <ShieldCheck className="w-5 h-5" />
-                </div>
-                <h3 className="text-base font-semibold text-white mb-1">JWT Security Layer</h3>
-                <p className="text-xs text-slate-400 leading-relaxed mb-4">
-                  Authorization middleware in <code className="text-emerald-400 bg-slate-900 px-1 py-0.5 rounded">src/middleware/auth.ts</code> protecting routes, enforcing Bearer tokens, and checking roles.
-                </p>
-              </div>
-              <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
-                <span>Security</span>
-                <span className="text-purple-400 font-mono">30-day JWT</span>
               </div>
             </div>
           </div>
         )}
+      </main>
 
-        {/* Modal: Create Eco-Drive */}
-        {showCreateModal && (
-          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 max-w-md w-full space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-base font-bold text-white flex items-center gap-2">
-                  <Plus className="w-4 h-4 text-emerald-400" /> Launch Campus Initiative
-                </h3>
-                <button
-                  onClick={() => setShowCreateModal(false)}
-                  className="text-slate-400 hover:text-white text-sm"
-                >
-                  ✕
-                </button>
+      {/* Modal for Creating New Initiative */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 space-y-5 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <TreePine className="w-5 h-5 text-emerald-400" /> Launch Campus Green Drive
+              </h3>
+              <button
+                onClick={() => setShowCreateModal(false)}
+                className="text-slate-400 hover:text-slate-200 text-xs font-semibold px-2 py-1 rounded-lg bg-slate-800"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateInitiative} className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1">Initiative Title</label>
+                <input
+                  type="text"
+                  value={newInitiative.title}
+                  onChange={(e) => setNewInitiative({ ...newInitiative, title: e.target.value })}
+                  placeholder="e.g. Clean Energy Awareness & Solar Drive"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500"
+                  required
+                />
               </div>
 
-              <form onSubmit={handleCreateInitiative} className="space-y-3">
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">Initiative Title</label>
-                  <input
-                    type="text"
-                    value={newInitiative.title}
-                    onChange={(e) => setNewInitiative({ ...newInitiative, title: e.target.value })}
-                    placeholder="e.g. Campus Herbal Garden Plantation Drive"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500"
-                    required
-                  />
-                </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1">Description</label>
+                <textarea
+                  rows={3}
+                  value={newInitiative.description}
+                  onChange={(e) => setNewInitiative({ ...newInitiative, description: e.target.value })}
+                  placeholder="Describe the goals, meeting point, and impact..."
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
+                  required
+                />
+              </div>
 
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-slate-300 mb-1">Category</label>
                   <select
                     value={newInitiative.category}
                     onChange={(e) => setNewInitiative({ ...newInitiative, category: e.target.value as any })}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
                   >
                     <option value="TreePlantation">Tree Plantation</option>
                     <option value="EWasteCollection">E-Waste Collection</option>
                     <option value="EnergyAudit">Energy Audit</option>
+                    <option value="WasteManagement">Waste Management</option>
                     <option value="AwarenessCampaign">Awareness Campaign</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">Campus Location</label>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">Target Volunteers</label>
                   <input
-                    type="text"
-                    value={newInitiative.location}
-                    onChange={(e) => setNewInitiative({ ...newInitiative, location: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">Description</label>
-                  <textarea
-                    value={newInitiative.description}
-                    onChange={(e) => setNewInitiative({ ...newInitiative, description: e.target.value })}
-                    placeholder="Describe the goals and impact of this initiative..."
-                    rows={3}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500"
+                    type="number"
+                    value={newInitiative.targetParticipants}
+                    onChange={(e) => setNewInitiative({ ...newInitiative, targetParticipants: Number(e.target.value) })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
                     required
                   />
                 </div>
+              </div>
 
-                <div className="pt-2 flex items-center justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowCreateModal(false)}
-                    className="px-4 py-2 rounded-lg text-xs font-medium bg-slate-800 text-slate-300 hover:bg-slate-700"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={createLoading}
-                    className="px-4 py-2 rounded-lg text-xs font-bold bg-emerald-500 hover:bg-emerald-400 text-slate-950 flex items-center gap-1.5"
-                  >
-                    {createLoading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : 'Publish Initiative (+100 PTS)'}
-                  </button>
-                </div>
-              </form>
-            </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1">CSJMU Location</label>
+                <input
+                  type="text"
+                  value={newInitiative.location}
+                  onChange={(e) => setNewInitiative({ ...newInitiative, location: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
+                  required
+                />
+              </div>
+
+              <div className="pt-2 flex items-center justify-end gap-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowCreateModal(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-slate-200 bg-slate-800"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="submit"
+                  disabled={createLoading}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-slate-950 bg-emerald-500 hover:bg-emerald-400 flex items-center gap-1.5 shadow-lg shadow-emerald-950/40"
+                >
+                  {createLoading ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <>
+                      <Plus className="w-3.5 h-3.5" /> Publish Drive (+100 PTS)
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
-        )}
-
-      </main>
-
-      {/* Footer */}
-      <footer className="border-t border-slate-800 bg-slate-950 py-4 mt-auto">
-        <div className="max-w-7xl mx-auto px-4 text-center text-xs text-slate-400">
-          Green CSJMU Initiative • MERN Stack (Express, MongoDB, JWT Auth, Mongoose)
         </div>
-      </footer>
+      )}
     </div>
   );
 }

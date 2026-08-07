@@ -28,9 +28,9 @@ async function startServer() {
     })
   );
 
-  // Body parser middleware
-  app.use(express.json());
-  app.use(express.urlencoded({ extended: true }));
+  // Body parser middleware with expanded limits for audio/photo uploads
+  app.use(express.json({ limit: '50mb' }));
+  app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
   // API Routes
   app.use('/api', apiRouter);
