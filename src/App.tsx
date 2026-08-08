@@ -236,8 +236,20 @@ export default function App() {
   const [currentToken, setCurrentToken] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
 
+  // Configure API Base URL for cross-domain requests (e.g. Vercel SPA -> Render Backend)
+  const API_BASE_URL = (((import.meta as any).env?.VITE_API_BASE_URL as string) || 'https://green-campus-cevz.onrender.com').replace(/\/$/, '');
+
+  const getApiUrl = (endpoint: string): string => {
+    if (endpoint.startsWith('http://') || endpoint.startsWith('https://')) {
+      return endpoint;
+    }
+    const path = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+    return `${API_BASE_URL}${path}`;
+  };
+
   const safeFetchJson = async (url: string, options?: RequestInit) => {
-    const res = await fetch(url, options);
+    const fullUrl = getApiUrl(url);
+    const res = await fetch(fullUrl, options);
     const contentType = res.headers.get('content-type') || '';
     if (contentType.includes('application/json')) {
       const data = await res.json();
@@ -248,12 +260,12 @@ export default function App() {
     }
     const text = await res.text();
     if (text.trim().startsWith('<') || text.includes('The page') || !res.ok) {
-      throw new Error(`API_OFFLINE: Endpoint ${url} returned non-JSON (${res.status})`);
+      throw new Error(`API_OFFLINE: Endpoint ${fullUrl} returned non-JSON (${res.status})`);
     }
     try {
       return JSON.parse(text);
     } catch (err) {
-      throw new Error(`API_OFFLINE: Endpoint ${url} returned invalid JSON`);
+      throw new Error(`API_OFFLINE: Endpoint ${fullUrl} returned invalid JSON`);
     }
   };
 
@@ -278,7 +290,7 @@ export default function App() {
   const fetchHealth = async () => {
     setLoadingHealth(true);
     try {
-      const res = await fetch('/api/health');
+      const res = await fetch(getApiUrl('/api/health'));
       if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
         const data: HealthResponse = await res.json();
         setHealth(data);
@@ -293,7 +305,7 @@ export default function App() {
   const fetchInitiatives = async () => {
     setLoadingInitiatives(true);
     try {
-      const res = await fetch('/api/initiatives');
+      const res = await fetch(getApiUrl('/api/initiatives'));
       if (res.ok) {
         const data = await res.json();
         setInitiatives(data.initiatives || []);
@@ -309,8 +321,8 @@ export default function App() {
     setLoadingRecycling(true);
     try {
       const [depRes, anaRes] = await Promise.all([
-        fetch('/api/recycling'),
-        fetch('/api/recycling/analytics')
+        fetch(getApiUrl('/api/recycling')),
+        fetch(getApiUrl('/api/recycling/analytics'))
       ]);
 
       if (depRes.ok) {
@@ -333,8 +345,8 @@ export default function App() {
     setLoadingAudit(true);
     try {
       const [audRes, rankRes] = await Promise.all([
-        fetch('/api/audit'),
-        fetch('/api/audit/rankings')
+        fetch(getApiUrl('/api/audit')),
+        fetch(getApiUrl('/api/audit/rankings'))
       ]);
 
       if (audRes.ok) {
@@ -356,7 +368,7 @@ export default function App() {
   const fetchComplaints = async () => {
     setLoadingComplaints(true);
     try {
-      const res = await fetch('/api/complaints');
+      const res = await fetch(getApiUrl('/api/complaints'));
       if (res.ok) {
         const data = await res.json();
         setComplaints(data.complaints || []);
@@ -371,7 +383,7 @@ export default function App() {
   const fetchLeaderboard = async () => {
     setLoadingLeaderboard(true);
     try {
-      const res = await fetch('/api/initiatives/leaderboard');
+      const res = await fetch(getApiUrl('/api/initiatives/leaderboard'));
       if (res.ok) {
         const data = await res.json();
         setLeaderboard(data.leaderboard || []);
@@ -388,7 +400,7 @@ export default function App() {
     const savedToken = localStorage.getItem('green_csjmu_token');
     if (savedToken) {
       setCurrentToken(savedToken);
-      fetch('/api/auth/me', {
+      fetch(getApiUrl('/api/auth/me'), {
         headers: { Authorization: `Bearer ${savedToken}` }
       })
         .then((res) => res.json())
