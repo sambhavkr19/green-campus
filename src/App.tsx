@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { MlPredictionEngine } from './components/MlPredictionEngine.js';
 import { 
   Leaf, 
   Server, 
@@ -38,6 +39,7 @@ import {
   Volume2,
   AlertTriangle,
   ThumbsUp,
+  Cpu,
   MessageSquare,
   Radio,
   Trash2,
@@ -149,7 +151,7 @@ interface VoiceComplaint {
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'initiatives' | 'recycling' | 'audit' | 'complaints' | 'leaderboard' | 'tester' | 'overview'>('initiatives');
+  const [activeTab, setActiveTab] = useState<'initiatives' | 'recycling' | 'audit' | 'complaints' | 'leaderboard' | 'tester' | 'overview' | 'ml'>('ml');
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [loadingHealth, setLoadingHealth] = useState<boolean>(true);
 
@@ -237,14 +239,16 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
 
   // Configure API Base URL for cross-domain requests (e.g. Vercel SPA -> Render Backend)
-  const API_BASE_URL = (((import.meta as any).env?.VITE_API_BASE_URL as string) || 'https://green-campus-cevz.onrender.com').replace(/\/$/, '');
+  // Default to relative path ('') in local environment so calls hit local Express server directly
+  const envApiBase = (((import.meta as any).env?.VITE_API_BASE_URL as string) || '').trim();
+  const API_BASE_URL = envApiBase ? envApiBase.replace(/\/$/, '') : '';
 
   const getApiUrl = (endpoint: string): string => {
     if (endpoint.startsWith('http://') || endpoint.startsWith('https://')) {
       return endpoint;
     }
     const path = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-    return `${API_BASE_URL}${path}`;
+    return API_BASE_URL ? `${API_BASE_URL}${path}` : path;
   };
 
   const safeFetchJson = async (url: string, options?: RequestInit) => {
@@ -306,7 +310,7 @@ export default function App() {
     setLoadingInitiatives(true);
     try {
       const res = await fetch(getApiUrl('/api/initiatives'));
-      if (res.ok) {
+      if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
         const data = await res.json();
         setInitiatives(data.initiatives || []);
       }
@@ -325,12 +329,12 @@ export default function App() {
         fetch(getApiUrl('/api/recycling/analytics'))
       ]);
 
-      if (depRes.ok) {
+      if (depRes.ok && depRes.headers.get('content-type')?.includes('application/json')) {
         const depData = await depRes.json();
         setDeposits(depData.deposits || []);
       }
 
-      if (anaRes.ok) {
+      if (anaRes.ok && anaRes.headers.get('content-type')?.includes('application/json')) {
         const anaData = await anaRes.json();
         setRecyclingAnalytics(anaData.analytics || null);
       }
@@ -349,12 +353,12 @@ export default function App() {
         fetch(getApiUrl('/api/audit/rankings'))
       ]);
 
-      if (audRes.ok) {
+      if (audRes.ok && audRes.headers.get('content-type')?.includes('application/json')) {
         const audData = await audRes.json();
         setAudits(audData.audits || []);
       }
 
-      if (rankRes.ok) {
+      if (rankRes.ok && rankRes.headers.get('content-type')?.includes('application/json')) {
         const rankData = await rankRes.json();
         setDeptRankings(rankData.rankings || []);
       }
@@ -369,7 +373,7 @@ export default function App() {
     setLoadingComplaints(true);
     try {
       const res = await fetch(getApiUrl('/api/complaints'));
-      if (res.ok) {
+      if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
         const data = await res.json();
         setComplaints(data.complaints || []);
       }
@@ -384,7 +388,7 @@ export default function App() {
     setLoadingLeaderboard(true);
     try {
       const res = await fetch(getApiUrl('/api/initiatives/leaderboard'));
-      if (res.ok) {
+      if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
         const data = await res.json();
         setLeaderboard(data.leaderboard || []);
       }
@@ -403,9 +407,14 @@ export default function App() {
       fetch(getApiUrl('/api/auth/me'), {
         headers: { Authorization: `Bearer ${savedToken}` }
       })
-        .then((res) => res.json())
+        .then((res) => {
+          if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
+            return res.json();
+          }
+          return null;
+        })
         .then((data) => {
-          if (data.status === 'success' && data.user) {
+          if (data && data.status === 'success' && data.user) {
             setCurrentUser(data.user);
           } else {
             localStorage.removeItem('green_csjmu_token');
@@ -1071,38 +1080,41 @@ export default function App() {
     : initiatives.filter(i => i.category === selectedCategory);
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950">
-      {/* Header */}
-      <header className="border-b border-slate-800 bg-slate-950/90 backdrop-blur sticky top-0 z-50">
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950">
+      {/* Sleek Unicorn SaaS Top Navigation Header */}
+      <header className="border-b border-slate-800/80 bg-slate-950/90 backdrop-blur-md sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center shadow-lg shadow-emerald-950/40">
-              <Leaf className="w-6 h-6 text-slate-950" />
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-400 via-teal-500 to-emerald-600 flex items-center justify-center shadow-lg shadow-emerald-500/20 ring-1 ring-emerald-400/30">
+              <Leaf className="w-5 h-5 text-slate-950" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-lg font-bold tracking-tight text-white">Green CSJMU Initiative</h1>
-                <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                  Full-Stack MERN
+                <h1 className="text-base font-bold tracking-tight text-white font-sans">Green CSJMU</h1>
+                <span className="px-2 py-0.5 text-[10px] font-mono font-semibold rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  MERN Platform
                 </span>
               </div>
-              <p className="text-xs text-slate-400">Chhatrapati Shahu Ji Maharaj University • Sustainability Platform</p>
+              <p className="text-[11px] text-slate-400">Chhatrapati Shahu Ji Maharaj University • Enterprise Eco Engine</p>
             </div>
           </div>
 
           <div className="flex items-center gap-3">
             {currentUser ? (
               <div className="flex items-center gap-2">
-                <div className="flex items-center gap-2.5 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-xl">
-                  <Award className="w-4 h-4 text-emerald-400" />
+                <div className="flex items-center gap-2.5 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-xl shadow-sm">
+                  <div className="w-6 h-6 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-xs">
+                    {currentUser.name.charAt(0)}
+                  </div>
                   <div className="text-xs text-left">
-                    <p className="font-semibold text-emerald-300">{currentUser.name}</p>
-                    <p className="text-slate-400 text-[10px]">{currentUser.greenPoints} Green Points</p>
+                    <p className="font-semibold text-slate-200">{currentUser.name}</p>
+                    <p className="text-emerald-400 font-mono text-[10px]">{currentUser.greenPoints} PTS</p>
                   </div>
                 </div>
                 <button
                   onClick={handleLogout}
-                  className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 px-2.5 py-1.5 rounded-lg border border-slate-700 transition"
+                  className="text-xs bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 px-2.5 py-1.5 rounded-xl border border-slate-800 transition"
                   title="Logout"
                 >
                   Logout
@@ -1111,7 +1123,7 @@ export default function App() {
             ) : (
               <button
                 onClick={() => setActiveTab('tester')}
-                className="text-xs font-medium bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-3 py-1.5 rounded-lg transition font-semibold"
+                className="text-xs font-semibold bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-3.5 py-2 rounded-xl transition shadow-md shadow-emerald-500/10"
               >
                 Register / Login
               </button>
@@ -1120,7 +1132,7 @@ export default function App() {
             <button
               onClick={fetchHealth}
               disabled={loadingHealth}
-              className="flex items-center gap-1.5 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1.5 rounded-lg border border-slate-700 transition"
+              className="flex items-center gap-1.5 text-xs font-medium bg-slate-900 hover:bg-slate-800 text-slate-300 px-3 py-2 rounded-xl border border-slate-800 transition"
               title="Refresh Health Check"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${loadingHealth ? 'animate-spin text-emerald-400' : ''}`} />
@@ -1131,14 +1143,80 @@ export default function App() {
       </header>
 
       {/* Main Container */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col gap-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col gap-6">
         
-        {/* Navigation Tabs */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
-          <nav className="flex items-center gap-2 overflow-x-auto">
+        {/* Unicorn Startup Executive KPI Metrics Bar */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="bg-slate-900/90 border border-slate-800/80 p-4 rounded-2xl flex flex-col justify-between relative overflow-hidden group hover:border-slate-700 transition">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-slate-400">Active Campus Drives</span>
+              <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                <Leaf className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="mt-3 flex items-baseline justify-between">
+              <span className="text-2xl font-bold text-white tracking-tight">{initiatives.length}</span>
+              <span className="text-[11px] font-medium text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">
+                +12% this week
+              </span>
+            </div>
+          </div>
+
+          <div className="bg-slate-900/90 border border-slate-800/80 p-4 rounded-2xl flex flex-col justify-between relative overflow-hidden group hover:border-slate-700 transition">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-slate-400">Voice & Photo Reports</span>
+              <div className="w-8 h-8 rounded-xl bg-teal-500/10 border border-teal-500/20 flex items-center justify-center text-teal-400">
+                <Mic className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="mt-3 flex items-baseline justify-between">
+              <span className="text-2xl font-bold text-white tracking-tight">{complaints.length}</span>
+              <span className="text-[11px] font-medium text-teal-400 bg-teal-500/10 px-2 py-0.5 rounded-md border border-teal-500/20">
+                Broadcasted
+              </span>
+            </div>
+          </div>
+
+          <div className="bg-slate-900/90 border border-slate-800/80 p-4 rounded-2xl flex flex-col justify-between relative overflow-hidden group hover:border-slate-700 transition">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-slate-400">Recycled Impact</span>
+              <div className="w-8 h-8 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400">
+                <Recycle className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="mt-3 flex items-baseline justify-between">
+              <span className="text-2xl font-bold text-white tracking-tight">
+                {recyclingAnalytics ? `${recyclingAnalytics.totalKgRecycled} kg` : '182.5 kg'}
+              </span>
+              <span className="text-[11px] font-medium text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded-md border border-cyan-500/20">
+                {recyclingAnalytics ? `${recyclingAnalytics.totalCo2SavedKg} kg CO2` : '365 kg CO2'}
+              </span>
+            </div>
+          </div>
+
+          <div className="bg-slate-900/90 border border-slate-800/80 p-4 rounded-2xl flex flex-col justify-between relative overflow-hidden group hover:border-slate-700 transition">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-slate-400">Campus Eco Score</span>
+              <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+                <Brain className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="mt-3 flex items-baseline justify-between">
+              <span className="text-2xl font-bold text-white tracking-tight">88.5 / 100</span>
+              <span className="text-[11px] font-medium text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">
+                Grade A
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Segmented Control Navigation Tabs */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900/60 p-1.5 rounded-2xl border border-slate-800/80">
+          <nav className="flex items-center gap-1 overflow-x-auto w-full sm:w-auto p-0.5 scrollbar-none">
             {[
+              { id: 'ml', label: 'ML Prediction Engine', icon: Cpu },
               { id: 'initiatives', label: 'Campus Drives', icon: Leaf },
-              { id: 'complaints', label: 'Voice & Photo Complaints', icon: Mic },
+              { id: 'complaints', label: 'Voice & Photo Reports', icon: Mic },
               { id: 'recycling', label: 'E-Waste & Recycling', icon: Recycle },
               { id: 'audit', label: 'AI Campus Eco-Audit', icon: Brain },
               { id: 'leaderboard', label: 'Green Leaderboard', icon: Trophy },
@@ -1151,9 +1229,9 @@ export default function App() {
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id as any)}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition whitespace-nowrap ${
+                  className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all whitespace-nowrap ${
                     isActive
-                      ? 'bg-emerald-500 text-slate-950 font-semibold shadow-md shadow-emerald-500/20'
+                      ? 'bg-emerald-500 text-slate-950 font-bold shadow-md shadow-emerald-500/20'
                       : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
                   }`}
                 >
@@ -1167,7 +1245,7 @@ export default function App() {
           {activeTab === 'initiatives' && (
             <button
               onClick={() => setShowCreateModal(true)}
-              className="flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-4 py-2 rounded-xl text-xs font-bold transition shadow-lg shadow-emerald-950/50"
+              className="flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-4 py-2 rounded-xl text-xs font-bold transition shadow-md shadow-emerald-500/10 shrink-0"
             >
               <Plus className="w-4 h-4" /> Launch Campus Drive (+100 PTS)
             </button>
@@ -2172,6 +2250,8 @@ export default function App() {
         )}
 
         {/* Tab 7: System Architecture */}
+        {activeTab === 'ml' && <MlPredictionEngine getApiUrl={getApiUrl} />}
+
         {activeTab === 'overview' && (
           <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
