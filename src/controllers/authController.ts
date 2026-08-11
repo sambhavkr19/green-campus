@@ -196,6 +196,41 @@ export const loginUser = asyncHandler(async (req: Request, res: Response) => {
 });
 
 /**
+ * Get all registered users from MongoDB
+ * GET /api/auth/users
+ */
+export const getUsers = asyncHandler(async (req: Request, res: Response) => {
+  const isDbConnected = mongoose.connection.readyState === 1;
+
+  if (isDbConnected) {
+    const users = await User.find().select('-password').sort({ createdAt: -1 });
+    return res.status(200).json({
+      status: 'success',
+      count: users.length,
+      users,
+    });
+  } else {
+    const users: any[] = [];
+    fallbackUsers.forEach((u) => {
+      users.push({
+        id: u._id,
+        name: u.name,
+        email: u.email,
+        role: u.role,
+        department: u.department,
+        greenPoints: u.greenPoints || 0,
+        createdAt: u.createdAt || new Date(),
+      });
+    });
+    return res.status(200).json({
+      status: 'success',
+      count: users.length,
+      users,
+    });
+  }
+});
+
+/**
  * Get current logged in user profile
  * GET /api/auth/me
  */
@@ -205,3 +240,4 @@ export const getMe = asyncHandler(async (req: AuthRequest, res: Response) => {
     user: req.user,
   });
 });
+

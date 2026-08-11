@@ -1,11 +1,61 @@
 import mongoose from 'mongoose';
+import { MongoMemoryServer } from 'mongodb-memory-server';
 
-// Disable command buffering so operations fail fast if disconnected
-mongoose.set('bufferCommands', false);
+let mongoMemoryServer: MongoMemoryServer | null = null;
+
+/**
+ * Seeds initial demo data (users, initiatives) into MongoDB if collection is empty
+ */
+export const seedInitialData = async () => {
+  try {
+    const User = mongoose.model('User');
+    const userCount = await User.countDocuments();
+    if (userCount === 0) {
+      console.log('[MongoDB Seeding] Initializing default CSJMU campus demo accounts...');
+      await User.create([
+        {
+          name: 'Aarav Student',
+          email: 'student@csjmu.ac.in',
+          password: 'password123',
+          role: 'student',
+          department: 'Computer Science & Engineering',
+          greenPoints: 350,
+        },
+        {
+          name: 'Priya Verma',
+          email: 'priya@csjmu.ac.in',
+          password: 'password123',
+          role: 'student',
+          department: 'Biotechnology',
+          greenPoints: 280,
+        },
+        {
+          name: 'Dr. Sunita Sharma',
+          email: 'faculty@csjmu.ac.in',
+          password: 'password123',
+          role: 'faculty',
+          department: 'Environmental Sciences',
+          greenPoints: 450,
+        },
+        {
+          name: 'Campus Admin',
+          email: 'admin@csjmu.ac.in',
+          password: 'password123',
+          role: 'admin',
+          department: 'Administration',
+          greenPoints: 1000,
+        },
+      ]);
+      console.log('[MongoDB Seeding] Default CSJMU demo accounts seeded successfully!');
+    }
+  } catch (err: any) {
+    console.warn('[MongoDB Seeding Notice]', err.message || err);
+  }
+};
 
 /**
  * Connects to MongoDB Atlas / MongoDB using process.env.MONGODB_URI.
- * Creates a single, reusable connection across the application lifecycle.
+ * Falls back to MongoMemoryServer (embedded live MongoDB engine) if no URI is supplied.
  */
 export const connectDB = async (): Promise<typeof mongoose> => {
   // Reuse existing connection if already connected (1) or connecting (2)
@@ -15,34 +65,37 @@ export const connectDB = async (): Promise<typeof mongoose> => {
 
   const mongoUri = (process.env.MONGODB_URI || '').trim().replace(/^["']|["']$/g, '');
 
-  if (!mongoUri) {
-    const fallbackUri = 'mongodb://127.0.0.1:27017/green_csjmu';
-    console.warn('[MongoDB Warning] MONGODB_URI is not set in environment. Attempting fallback local connection.');
+  // 1. Try process.env.MONGODB_URI if valid
+  if (mongoUri && !mongoUri.includes('<') && !mongoUri.includes('>')) {
     try {
-      return await mongoose.connect(fallbackUri, { serverSelectionTimeoutMS: 2500 });
-    } catch (err: any) {
-      console.warn('[MongoDB Notice] Local MongoDB instance unavailable. Operating with in-memory store.');
-      return mongoose;
+      const isAtlas = mongoUri.startsWith('mongodb+srv://');
+      const conn = await mongoose.connect(mongoUri, {
+        serverSelectionTimeoutMS: isAtlas ? 8000 : 3000,
+      });
+
+      console.log(`[MongoDB Atlas] Connected successfully to host: ${conn.connection.host} | DB: ${conn.connection.name}`);
+      await seedInitialData();
+      return conn;
+    } catch (error: any) {
+      console.warn(`[MongoDB Atlas Warning] Failed to connect to MONGODB_URI (${error.message}). Switching to Embedded Live MongoDB Engine.`);
     }
   }
 
-  // Validate placeholder credentials in URI
-  if (mongoUri.includes('<') || mongoUri.includes('>')) {
-    console.warn('[MongoDB Warning] MONGODB_URI contains unreplaced placeholders (e.g. <username> or <password>).');
-    return mongoose;
-  }
-
+  // 2. Embedded Live MongoMemoryServer Fallback (Guarantees real MongoDB instance is ALWAYS connected)
   try {
-    const isAtlas = mongoUri.startsWith('mongodb+srv://');
-    const conn = await mongoose.connect(mongoUri, {
-      serverSelectionTimeoutMS: isAtlas ? 10000 : 3000,
-    });
+    if (!mongoMemoryServer) {
+      mongoMemoryServer = await MongoMemoryServer.create({
+        instance: { dbName: 'green_csjmu' }
+      });
+    }
+    const memUri = mongoMemoryServer.getUri();
+    const conn = await mongoose.connect(memUri);
 
-    console.log(`[MongoDB Atlas] Connected successfully to host: ${conn.connection.host} | DB: ${conn.connection.name}`);
+    console.log(`[MongoDB Engine] Live MongoMemoryServer active and connected at: ${memUri}`);
+    await seedInitialData();
     return conn;
-  } catch (error: any) {
-    console.error(`[MongoDB Connection Error] Failed to connect: ${error.message || error}`);
-    console.log('[MongoDB Fallback] Application continues with in-memory fallback layer.');
+  } catch (memErr: any) {
+    console.error(`[MongoDB Engine Error] Could not start embedded MongoMemoryServer: ${memErr.message || memErr}`);
     return mongoose;
   }
 };
@@ -56,4 +109,5 @@ mongoose.connection.on('error', (err) => {
     console.error('[MongoDB Error Event]', err.message || err);
   }
 });
+
 

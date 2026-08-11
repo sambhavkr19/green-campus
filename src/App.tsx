@@ -237,6 +237,8 @@ export default function App() {
   const [authError, setAuthError] = useState<string | null>(null);
   const [currentToken, setCurrentToken] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  const [registeredUsers, setRegisteredUsers] = useState<any[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState<boolean>(false);
 
   // Configure API Base URL for cross-domain requests (e.g. Vercel SPA -> Render Backend)
   // Default to relative path ('') in local environment so calls hit local Express server directly
@@ -399,6 +401,21 @@ export default function App() {
     }
   };
 
+  const fetchRegisteredUsers = async () => {
+    setLoadingUsers(true);
+    try {
+      const res = await fetch(getApiUrl('/api/auth/users'));
+      if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
+        const data = await res.json();
+        setRegisteredUsers(data.users || []);
+      }
+    } catch (err) {
+      console.error('Failed to load registered users', err);
+    } finally {
+      setLoadingUsers(false);
+    }
+  };
+
   useEffect(() => {
     // Restore session from localStorage if available
     const savedToken = localStorage.getItem('green_csjmu_token');
@@ -438,6 +455,7 @@ export default function App() {
     fetchAuditData();
     fetchComplaints();
     fetchLeaderboard();
+    fetchRegisteredUsers();
   }, []);
 
   // Buffer to WAV converter for synthesized demo voice notes
@@ -670,6 +688,8 @@ export default function App() {
         localStorage.setItem('green_csjmu_token', data.token);
         localStorage.setItem('green_csjmu_user', JSON.stringify(data.user));
       }
+      fetchRegisteredUsers();
+      fetchLeaderboard();
     } catch (err: any) {
       setAuthError(err.message || 'Auth execution failed');
     } finally {
@@ -2230,21 +2250,78 @@ export default function App() {
                   )}
 
                   {authResult && (
-                    <div className="space-y-1">
-                      <span className="text-[11px] text-slate-400 font-mono">API JSON Payload Output:</span>
-                      <pre className="text-[11px] font-mono text-slate-300 bg-slate-900 p-3 rounded-xl border border-slate-800 overflow-x-auto max-h-48">
-                        {JSON.stringify(authResult, null, 2)}
-                      </pre>
+                    <div className="space-y-2">
+                      {authResult.message?.includes('Client Mode') && (
+                        <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-xs space-y-1">
+                          <div className="flex items-center gap-1.5 font-bold text-amber-400">
+                            <AlertTriangle className="w-4 h-4 shrink-0" />
+                            <span>Client Fallback Mode Active</span>
+                          </div>
+                          <p className="text-[11px] text-slate-300 leading-relaxed">
+                            Registration succeeded locally in browser memory. To write directly to your MongoDB Atlas cluster (<code className="text-amber-300">roomzent</code>):
+                          </p>
+                          <ol className="text-[10px] text-slate-400 list-decimal list-inside space-y-0.5 font-mono">
+                            <li>Set <code className="text-amber-300">MONGODB_URI</code> in your Render backend environment variables.</li>
+                            <li>Set <code className="text-amber-300">VITE_API_BASE_URL</code> in Vercel to your Render backend URL (e.g. <code className="text-amber-300">https://green-campus-cevz.onrender.com</code>).</li>
+                          </ol>
+                        </div>
+                      )}
+                      <div className="space-y-1">
+                        <span className="text-[11px] text-slate-400 font-mono">API JSON Payload Output:</span>
+                        <pre className="text-[11px] font-mono text-slate-300 bg-slate-900 p-3 rounded-xl border border-slate-800 overflow-x-auto max-h-36">
+                          {JSON.stringify(authResult, null, 2)}
+                        </pre>
+                      </div>
                     </div>
                   )}
                 </div>
               ) : (
-                <div className="p-8 text-center text-slate-500 space-y-2">
+                <div className="p-6 text-center text-slate-500 space-y-2 bg-slate-900/50 rounded-xl border border-slate-800">
                   <ShieldCheck className="w-8 h-8 text-slate-600 mx-auto" />
-                  <p className="text-xs text-slate-400">No active JWT session.</p>
+                  <p className="text-xs text-slate-400 font-semibold">No active JWT session.</p>
                   <p className="text-[11px]">Register or login on the left form to issue an HTTP Bearer Token.</p>
                 </div>
               )}
+
+              {/* Live Registered Users in MongoDB Table */}
+              <div className="pt-4 border-t border-slate-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Database className="w-4 h-4 text-cyan-400" />
+                    <h4 className="text-xs font-bold text-slate-200">MongoDB Registered Accounts ({registeredUsers.length})</h4>
+                  </div>
+                  <button
+                    onClick={fetchRegisteredUsers}
+                    disabled={loadingUsers}
+                    className="text-[11px] bg-slate-900 hover:bg-slate-800 text-cyan-400 border border-cyan-500/30 px-2.5 py-1 rounded-lg flex items-center gap-1 font-mono transition"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${loadingUsers ? 'animate-spin' : ''}`} /> Refresh Mongo
+                  </button>
+                </div>
+
+                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                  {registeredUsers.length === 0 ? (
+                    <p className="text-[11px] text-slate-500 italic p-3 text-center">No registered accounts found in MongoDB.</p>
+                  ) : (
+                    registeredUsers.map((u) => (
+                      <div key={u._id || u.id || u.email} className="p-2.5 bg-slate-900 rounded-xl border border-slate-800/80 flex items-center justify-between text-xs">
+                        <div>
+                          <p className="font-semibold text-slate-200 flex items-center gap-1.5">
+                            {u.name}
+                            <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-slate-800 text-emerald-400 border border-slate-700">
+                              {u.role || 'student'}
+                            </span>
+                          </p>
+                          <p className="text-[11px] text-slate-400">{u.email} • {u.department || 'CSJMU'}</p>
+                        </div>
+                        <span className="font-mono text-emerald-400 font-bold text-xs shrink-0">
+                          {u.greenPoints || 0} PTS
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         )}
